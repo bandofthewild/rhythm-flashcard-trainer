@@ -17,47 +17,63 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0}
-  body{font-family:'Nunito Sans', system-ui, sans-serif; -webkit-font-smoothing:antialiased; background:transparent}
+  /* Base size scales with the embed width, so everything (built in em) scales together */
+  body{font-family:'Nunito Sans', system-ui, sans-serif; -webkit-font-smoothing:antialiased;
+    background:transparent; font-size:clamp(13px, 1.5vw, 17px)}
   .card{
-    max-width:1040px; margin:0 auto; background:linear-gradient(135deg,#ffffff 0%, #eaf2f6 100%);
-    border:1px solid var(--line); border-radius:20px; padding:34px 38px;
+    width:100%; max-width:1100px; margin:0 auto;
+    background:linear-gradient(135deg,#ffffff 0%, #eaf2f6 100%);
+    border:1px solid var(--line); border-radius:clamp(14px,1.6vw,20px);
+    padding:clamp(20px,3vw,36px);
     box-shadow:0 14px 40px rgba(3,87,114,.16);
-    display:flex; gap:38px; align-items:center; flex-wrap:wrap;
+    display:flex; gap:clamp(22px,3vw,40px); align-items:center; flex-wrap:wrap;
   }
-  .left{flex:1 1 380px; min-width:300px}
-  .right{flex:1 1 400px; min-width:320px}
-  .eyebrow{color:var(--teal); font-weight:700; letter-spacing:.16em; text-transform:uppercase; font-size:12px; margin-bottom:8px}
-  h1{font-family:var(--head); color:var(--teal); font-size:38px; line-height:1.05; margin:0 0 12px; font-weight:700}
-  .tag{color:var(--ink); font-size:17px; line-height:1.5; margin:0 0 18px}
-  ul{list-style:none; margin:0 0 24px; padding:0}
-  li{display:flex; gap:11px; align-items:flex-start; color:var(--ink); font-size:15px; line-height:1.45; margin-bottom:11px}
-  li .ck{flex:none; width:22px; height:22px; border-radius:50%; background:var(--teal); color:#fff; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px}
-  .cta{display:inline-flex; align-items:center; gap:10px; background:var(--teal); color:#fff; text-decoration:none;
-    font-size:17px; font-weight:700; padding:15px 30px; border-radius:12px; box-shadow:0 6px 16px rgba(3,87,114,.28);
-    transition:background .15s, transform .1s}
+  .left{flex:1 1 360px; min-width:0}
+  .right{flex:1 1 380px; min-width:0}
+  .eyebrow{color:var(--teal); font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+    font-size:clamp(10px,1.05vw,12px); margin-bottom:.7em}
+  h1{font-family:var(--head); color:var(--teal); font-size:clamp(26px,4vw,40px);
+    line-height:1.05; margin:0 0 .34em; font-weight:700}
+  .tag{color:var(--ink); font-size:clamp(15px,1.7vw,18px); line-height:1.5; margin:0 0 1.05em}
+  ul{list-style:none; margin:0 0 1.35em; padding:0}
+  li{display:flex; gap:.7em; align-items:flex-start; color:var(--ink);
+    font-size:clamp(13.5px,1.5vw,15.5px); line-height:1.45; margin-bottom:.72em}
+  li .ck{flex:none; width:1.5em; height:1.5em; border-radius:50%; background:var(--teal); color:#fff;
+    font-size:.85em; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:.12em}
+  .cta{display:inline-flex; align-items:center; gap:.55em; background:var(--teal); color:#fff; text-decoration:none;
+    font-size:clamp(15px,1.75vw,18px); font-weight:700; padding:.85em 1.7em; border-radius:.7em;
+    box-shadow:0 6px 16px rgba(3,87,114,.28); transition:background .15s, transform .1s}
   .cta:hover{background:var(--teal2); transform:translateY(-1px)}
-  .cta .arr{font-size:19px}
-  .fine{color:var(--muted); font-size:12.5px; margin-top:12px}
-  .mock{background:#dfeaef; border:1px solid var(--line); border-radius:14px; padding:14px; box-shadow:inset 0 1px 3px rgba(3,87,114,.08)}
+  .cta .arr{font-size:1.15em}
+  .fine{color:var(--muted); font-size:clamp(11px,1.15vw,13px); margin-top:.72em}
+  .mock{background:#dfeaef; border:1px solid var(--line); border-radius:clamp(10px,1.2vw,14px);
+    padding:clamp(10px,1.2vw,14px); box-shadow:inset 0 1px 3px rgba(3,87,114,.08)}
   .mock svg{display:block; width:100%; height:auto}
-  @media (max-width:720px){ h1{font-size:31px} .card{padding:26px 24px} }
+  /* Narrow embed / phone: stack the columns */
+  @media (max-width:640px){
+    .card{flex-direction:column; align-items:stretch; text-align:left}
+    .left,.right{flex:1 1 auto}
+    h1{font-size:clamp(24px,7vw,34px)}
+    .tag{font-size:clamp(15px,4.2vw,18px)}
+    li{font-size:clamp(14px,3.7vw,16px)}
+  }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="left">
-      <div class="eyebrow">Free Classroom Tool</div>
+      <div class="eyebrow">Classroom Tool</div>
       <h1>Rhythm Flashcard Trainer</h1>
-      <p class="tag">Project a fresh rhythm for the whole ensemble to read and count together &mdash; in every meter, at every level.</p>
+      <p class="tag">A fun, practical way to drill rhythms &mdash; procedurally generated at all difficulty levels and in all types of meter.</p>
       <ul>
-        <li><span class="ck">&#10003;</span><span><b>Flash-card rhythm reading.</b> A new pattern each turn &mdash; or Hold a card to drill it &mdash; with the counting revealed on your cue.</span></li>
-        <li><span class="ck">&#10003;</span><span><b>Counts in time.</b> Press Play for a count-off, then the pulse sweeps &ldquo;1 e &amp; a&rdquo; through the subdivisions so the whole room locks together.</span></li>
-        <li><span class="ck">&#10003;</span><span><b>Every meter, six levels.</b> Simple, compound, cut &amp; asymmetrical (5/8, 7/8) &mdash; from whole notes to syncopated sixteenths and triplets.</span></li>
-        <li><span class="ck">&#10003;</span><span><b>Made for the room.</b> Full-screen for the projector; drill to a groove, tap or type an exact tempo, or count along to your own recording.</span></li>
+        <li><span class="ck">&#10003;</span><span><b>Flashcard Rhythm Reading:</b> A new rhythm each turn &mdash; or Hold a card to drill it &mdash; with the counting revealed below on your cue.</span></li>
+        <li><span class="ck">&#10003;</span><span><b>Counting Beats to the Beat:</b> Press Play for a count-off, then count the rhythm, then clap or play it. Choose from a selection of provided grooves as a backbeat, or use the tempo-tap feature to pull in your own music to practice rhythms with.</span></li>
+        <li><span class="ck">&#10003;</span><span><b>Every Meter, 6 Difficulty Levels:</b> Simple, compound, cut time &amp; asymmetrical meters &mdash; from whole notes to 16th-note triplets and beyond.</span></li>
+        <li><span class="ck">&#10003;</span><span><b>Made for Individuals or the Full Classroom:</b> A great practice routine for students at home, while full-screen mode on the projector makes it a perfect fit for full-ensemble drilling.</span></li>
       </ul>
       <!-- Button links to your live app. If your repo name differs, update this URL. -->
       <a class="cta" href="https://bandofthewild.github.io/rhythm-flashcard-trainer/" target="_blank" rel="noopener">Open the Rhythm Flashcard Trainer <span class="arr">&rarr;</span></a>
-      <div class="fine">Opens in a new tab &middot; works on any classroom computer or Chromebook</div>
+      <div class="fine">Opens in a new tab &mdash; works on any classroom computer or Chromebook</div>
     </div>
 
     <div class="right">
@@ -90,19 +106,15 @@
 
           <!-- notes: [8th 8th] quarter quarter [8th 8th] -->
           <g fill="#111" stroke="#111">
-            <!-- beat 1: two beamed eighths -->
             <ellipse cx="120" cy="150" rx="7" ry="5.2"/>
             <ellipse cx="154" cy="150" rx="7" ry="5.2"/>
             <line x1="126.5" y1="149" x2="126.5" y2="112" stroke-width="2"/>
             <line x1="160.5" y1="149" x2="160.5" y2="112" stroke-width="2"/>
             <rect x="126" y="110" width="35" height="5" fill="#111" stroke="none"/>
-            <!-- beat 2: quarter -->
             <ellipse cx="208" cy="150" rx="7" ry="5.2"/>
             <line x1="214.5" y1="149" x2="214.5" y2="112" stroke-width="2"/>
-            <!-- beat 3: quarter -->
             <ellipse cx="296" cy="150" rx="7" ry="5.2"/>
             <line x1="302.5" y1="149" x2="302.5" y2="112" stroke-width="2"/>
-            <!-- beat 4: two beamed eighths -->
             <ellipse cx="384" cy="150" rx="7" ry="5.2"/>
             <ellipse cx="418" cy="150" rx="7" ry="5.2"/>
             <line x1="390.5" y1="149" x2="390.5" y2="112" stroke-width="2"/>
