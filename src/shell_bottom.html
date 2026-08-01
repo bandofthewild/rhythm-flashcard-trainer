@@ -1,0 +1,1640 @@
+  // ===================== END LIFTED ENGINE =====================
+
+  // ---- state ----
+  var state = {
+    timeSig:'4/4',
+    levels:[1], difficulties:['medium'], customRhythms:false, combineLevels:false, combineDiffs:false,   // grab-bag per control
+    level:1, difficulty:'medium',                               // per-card pick (set at deal time)
+    measures:1,
+    sound:'rock', bpm:92, steps:'count',            // 'count' | 'countclap'
+    syllables:'off',                                 // 'off' | 'last' | 'on'
+    hearIt:false, speedTrainer:false, ties:false,
+    autoAdvance:true,
+    focus:{ sync:false, dotted:false, rests:false, triplet:false },
+    prepBeatsTarget:4,
+    oddGrouping:{ '5/8':'2+3', '7/8':'2+2+3' },
+    revealNow:false,
+    running:false
+  };
+
+  // ---- keep the hidden engine DOM contract in sync with state ----
+  function syncEngineDom(){
+    var lv=document.getElementById('dropdownLevel'); if(lv) lv.value=String(state.level);
+    var ts=document.getElementById('dropdownTimeSignature'); if(ts) ts.value=state.timeSig;
+    var df=document.getElementById('dropdownDifficulty'); if(df) df.value=state.difficulty;
+    var at=document.getElementById('allowTies'); if(at) at.checked=state.ties;
+  }
+
+  // ===== odd meters (5/8, 7/8): grouping picker + group-aware generation/grooves =====
+  try { if(!LEVEL_ADDITIONS.odd) LEVEL_ADDITIONS.odd = LEVEL_ADDITIONS.compound; } catch(e){}   // avoid pool lookups erroring
+  var ODD = {
+    '5/8': { def:'2+3', groupings:{ '2+3':[2,3], '3+2':[3,2] } },
+    '7/8': { def:'2+2+3', groupings:{ '2+2+3':[2,2,3], '3+2+2':[3,2,2], '2+3+2':[2,3,2] } }
+  };
+  function isOdd(ts){ return ts==='5/8' || ts==='7/8'; }
+  function currentGrouping(ts){
+    var o=ODD[ts]; if(!o) return null;
+    var name=(state.oddGrouping && state.oddGrouping[ts]) || o.def;
+    return o.groupings[name] || o.groupings[o.def];
+  }
+  function oddGroupStartSixteenths(ts){
+    var g=currentGrouping(ts); if(!g) return [0];
+    var starts=[], pos=0; g.forEach(function(gc){ starts.push(pos); pos+=gc*2; }); return starts;
+  }
+  function beatStartSet(ts){
+    var s={};
+    if(isOdd(ts)){ oddGroupStartSixteenths(ts).forEach(function(x){ s[x]=1; }); return s; }
+    var pu=getMeterPlaybackConfig(ts).pulseUnits, upb=getTotalUnits(ts);
+    for(var x=0;x<upb;x+=pu) s[x]=1;
+    return s;
+  }
+  function makeEv(key){ var d=RHYTHM_DEFS[key]; return d ? Object.assign({key:key}, d) : null; }
+  // Odd-meter pattern vocabulary, tiered by level (cumulative). Each P(minLevel, keys)
+  // is available once state.level reaches minLevel. Values are eighth/quarter/dotted-quarter
+  // and (from L4) sixteenths — never whole/half, which don't belong in 5/8 & 7/8.
+  function oddGroupPatterns(gEighths, level){
+    var U=gEighths*2, pats=[];
+    function P(min, keys){ if(level<min) return; var evs=keys.map(makeEv); if(evs.some(function(e){return !e;})) return; if(evs.reduce(function(a,e){return a+(e.units||0);},0)!==U) return; pats.push(evs); }
+    if(gEighths===2){                                   // 4 units
+      P(1,['quarter']); P(1,['eighth','eighth']);
+      P(2,['eighth','8thRest']); P(2,['8thRest','eighth']); P(2,['qrtrRest']);
+      P(4,['sixteenth','sixteenth','eighth']); P(4,['eighth','sixteenth','sixteenth']);
+      P(5,['dotted8th','sixteenth']); P(5,['sixteenth','sixteenth','sixteenth','sixteenth']);
+      P(6,['sixteenth','eighth','sixteenth']); P(6,['sixteenth','dotted8th']);
+      P(6,['eighthNoteTriplet']);                              // 3 eighths in the group's quarter
+    } else {                                            // 6 units (the 3-group)
+      P(1,['dottedQtr']); P(1,['eighth','eighth','eighth']);
+      P(2,['quarter','eighth']); P(2,['eighth','quarter']); P(2,['dottedQrtrRest']);
+      P(3,['quarter','8thRest']); P(3,['8thRest','quarter']); P(3,['eighth','eighth','8thRest']); P(3,['8thRest','eighth','eighth']); P(3,['eighth','8thRest','eighth']);
+      P(4,['eighth','eighth','sixteenth','sixteenth']); P(4,['sixteenth','sixteenth','eighth','eighth']); P(4,['eighth','sixteenth','sixteenth','eighth']);
+      P(5,['quarter','sixteenth','sixteenth']); P(5,['sixteenth','sixteenth','quarter']); P(5,['dotted8th','sixteenth','eighth']); P(5,['eighth','dotted8th','sixteenth']);
+      P(6,['sixteenth','sixteenth','eighth','sixteenth','sixteenth']); P(6,['eighth','sixteenth','sixteenth','sixteenth','sixteenth']); P(6,['sixteenth','sixteenth','sixteenth','sixteenth','eighth']);
+      P(6,['eighthNoteTriplet','eighth']); P(6,['eighth','eighthNoteTriplet']);   // 8th-note triplet + eighth
+      P(6,['sixteenthTriplet','eighth','eighth']); P(6,['eighth','sixteenthTriplet','eighth']);
+    }
+    if(!pats.length){ var f=makeEv(gEighths===3?'dottedQtr':'quarter'); if(f) pats.push([f]); }
+    return pats;
+  }
+  function weightedPick(pats, diff){
+    var w=pats.map(function(p){ var n=p.length; return diff==='easy'?1/(n*n):(diff==='hard'?n*n:n); });
+    var tot=w.reduce(function(a,b){return a+b;},0), r=Math.random()*tot;
+    for(var i=0;i<pats.length;i++){ r-=w[i]; if(r<=0) return pats[i]; }
+    return pats[pats.length-1];
+  }
+  function generateOdd(ts, numMeasures){
+    var groups=currentGrouping(ts) || [2,3];
+    var measures=[];
+    for(var m=0;m<numMeasures;m++){
+      var events=[];
+      groups.forEach(function(gEighths){
+        weightedPick(oddGroupPatterns(gEighths, state.level), state.difficulty).forEach(function(e){ events.push(Object.assign({}, e)); });
+      });
+      measures.push(events);
+    }
+    return measures;
+  }
+
+  // ---- shims for the two UI hooks the lifted level-selection code calls ----
+  function updateLevelUI(){ updateLevelHint(); refreshRhythmTags(); }
+  function debouncedGenerate(){ if(!state.running) dealPreviewCard(); }
+
+  // Union of all selected levels' recommended rhythms → the grab-bag pool
+  function applyLevelUnion(){
+    var want={};
+    state.levels.forEach(function(L){ getDefaultRhythmsForLevel(L, state.timeSig).forEach(function(k){ want[k]=1; }); });
+    Object.keys(RHYTHM_DEFS).forEach(function(k){ var el=document.getElementById('rhythm-'+k); if(el) el.checked=!!want[k]; });
+    refreshRhythmTags();
+  }
+  function capAfterColon(s){ return String(s).replace(/(:\s*\+?\s*)([a-z])/g, function(m,p,c){ return p+c.toUpperCase(); }); }
+  var ODD_LEVEL_DESC = {
+    1: 'Asymmetrical meter: Eighths, quarters &amp; the group\u2019s dotted quarter \u2014 feel the grouping',
+    2: 'Asymmetrical meter: Add eighth &amp; group rests; quarter\u2013eighth mixes',
+    3: 'Asymmetrical meter: Add off-beat entrances &amp; more rest placements',
+    4: 'Asymmetrical meter: Add sixteenth notes (paired with eighths)',
+    5: 'Asymmetrical meter: Add dotted-eighth/sixteenth &amp; busier sixteenths',
+    6: 'Asymmetrical meter: Add syncopated sixteenths &amp; eighth/sixteenth triplets'
+  };
+  function updateLevelHint(){
+    var line=document.getElementById('levelHintLine'); if(!line) return;
+    var cat=getMeterCategory(state.timeSig);
+    var ls=state.levels.slice().sort(function(a,b){return a-b;});
+    var multiL=state.combineLevels && ls.length>1;
+    var multiD=state.combineDiffs && state.difficulties.length>1;
+    if(!multiL && !multiD){
+      if(isOdd(state.timeSig)){
+        line.innerHTML = ODD_LEVEL_DESC[ls[0]] || '';
+      } else {
+        var t = capAfterColon(getLevelHintText(ls[0], cat));
+        t = t.replace(/^Simple:/, 'Simple meter:').replace(/^Compound:/, 'Compound meter:');
+        line.innerHTML = t;
+      }
+    } else {
+      var lvTxt=multiL ? ('levels <b>'+ls.join(', ')+'</b>') : ('level <b>'+ls[0]+'</b>');
+      var cTxt =multiD ? (' &amp; complexities <b>'+state.difficulties.join(', ')+'</b>') : '';
+      line.innerHTML='Grab&#8209;bag of '+lvTxt+cTxt+' &mdash; each card is drawn from the mix.';
+    }
+  }
+
+  // ================= AUDIO ENGINE (Web Audio — from Note Board) =================
+  var audioCtx=null, master=null, noiseBuf=null, nextStepTime=0, STEP=0, schedId=null, rafId=null;
+  var vq = [];                 // per-16th visual queue {time, step}
+  var countInSteps = 16;       // 16th steps of lead-in click before the cycle
+  var anchorAudio = null, lastTapAudio = null, pendingBpm = null;
+  var resyncArmed = false, resyncComeIn = 0;
+  var LAT = 0.02;
+  var LOOKAHEAD=25, SCHEDULE_AHEAD=0.12;
+
+  function ensureAudio(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      master = audioCtx.createGain(); master.gain.value=1.6;
+      var comp = audioCtx.createDynamicsCompressor();
+      comp.threshold.value=-16; comp.knee.value=28; comp.ratio.value=10; comp.attack.value=0.003; comp.release.value=0.25;
+      master.connect(comp); comp.connect(audioCtx.destination);
+      noiseBuf = makeNoise();
+      var L = (audioCtx.outputLatency || audioCtx.baseLatency || 0.02);
+      LAT = Math.max(0, Math.min(0.09, L));
+    }
+    if(audioCtx.state==='suspended') audioCtx.resume();
+  }
+  var GROOVES = {
+    metronome:null,
+    rock:{ kick:[0,8,10], snare:[4,12], hat:[0,2,4,6,8,10,12,14], open:[14] },
+    funk:{ kick:[0,3,8,11], snare:[4,12], hat:[0,2,4,6,8,10,12,14], ghost:[7,15], open:[6] },
+    pop:{  kick:[0,8,10], snare:[4,12], hat:[2,6,10,14], open:[] , clap:[4,12]},
+    latin:{ kick:[0,3,6,10,11], snare:[4,7,12,15], hat:[0,2,4,6,8,10,12,14] },
+    marching:{ kick:[0,4,8,12], snare:[2,6,10,13,14,15], hat:[] }
+  };
+  function makeNoise(){
+    var n=audioCtx.sampleRate*0.4, b=audioCtx.createBuffer(1,n,audioCtx.sampleRate), d=b.getChannelData(0);
+    for(var i=0;i<n;i++) d[i]=Math.random()*2-1;
+    return b;
+  }
+  function click(t, accent){
+    var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.frequency.value=accent?1250:820;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(accent?0.7:0.42,t+0.001);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
+    o.connect(g).connect(master); o.start(t); o.stop(t+0.11);
+  }
+  function kick(t){
+    var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.frequency.setValueAtTime(155,t); o.frequency.exponentialRampToValueAtTime(52,t+0.11);
+    g.gain.setValueAtTime(0.95,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.17);
+    o.connect(g).connect(master); o.start(t); o.stop(t+0.19);
+  }
+  function snare(t, vol){
+    var n=audioCtx.createBufferSource(); n.buffer=noiseBuf;
+    var hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1400;
+    var g=audioCtx.createGain(); g.gain.setValueAtTime(vol||0.5,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.14);
+    n.connect(hp).connect(g).connect(master); n.start(t); n.stop(t+0.16);
+    var o=audioCtx.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(185,t);
+    var g2=audioCtx.createGain(); g2.gain.setValueAtTime((vol||0.5)*0.6,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.09);
+    o.connect(g2).connect(master); o.start(t); o.stop(t+0.11);
+  }
+  function hat(t, vol){
+    var n=audioCtx.createBufferSource(); n.buffer=noiseBuf;
+    var hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=7500;
+    var g=audioCtx.createGain(); g.gain.setValueAtTime(vol||0.22,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.045);
+    n.connect(hp).connect(g).connect(master); n.start(t); n.stop(t+0.05);
+  }
+  function openhat(t){
+    var n=audioCtx.createBufferSource(); n.buffer=noiseBuf;
+    var hp=audioCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=6500;
+    var g=audioCtx.createGain(); g.gain.setValueAtTime(0.2,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+    n.connect(hp).connect(g).connect(master); n.start(t); n.stop(t+0.24);
+  }
+  function tom(t, freq){
+    var o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.frequency.setValueAtTime(freq,t); o.frequency.exponentialRampToValueAtTime(freq*0.7,t+0.14);
+    g.gain.setValueAtTime(0.6,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.16);
+    o.connect(g).connect(master); o.start(t); o.stop(t+0.18);
+  }
+  // "Hear It" tone — mirrors the worksheet: soft sine at G4 through a warm lowpass,
+  // sustained for ~78% of the note's written length (durSec), with a gentle release.
+  function rhythmTone(t, durSec){
+    var hold = Math.max(0.05, (durSec||0.2) * 0.78);
+    var o=audioCtx.createOscillator(); o.type='sine'; o.frequency.value=392.0;   // G4
+    var lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1600; lp.Q.value=0.5;
+    var g=audioCtx.createGain();
+    var A=0.022, D=0.14, S=0.58, R=0.30, peak=0.5, sus=0.5*S;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t+A);
+    g.gain.linearRampToValueAtTime(sus, t+A+D);
+    g.gain.setValueAtTime(sus, Math.max(t+A+D, t+hold));
+    g.gain.exponentialRampToValueAtTime(0.0001, t+hold+R);
+    o.connect(lp).connect(g).connect(master);
+    o.start(t); o.stop(t+hold+R+0.05);
+  }
+  // ---- meter-aware clock + grooves ----
+  // Compound meters (6/8, 9/8, 12/8) are clocked on the dotted-quarter felt beat
+  // (bpm = dotted quarters/min) so the pulse and grooves land in a proper triple feel.
+  // Everything else stays quarter-clocked exactly as before.
+  function uniq(a){ var s={},o=[]; a.forEach(function(x){ if(x!=null && !s[x]){ s[x]=1; o.push(x); } }); return o.sort(function(p,q){return p-q;}); }
+  function meterGrid(ts){
+    var mpc=getMeterPlaybackConfig(ts);
+    return { units:getTotalUnits(ts), pulse:mpc.pulseUnits, beats:mpc.pulsesPerMeasure, kind:mpc.kind };
+  }
+  function clockPulse(ts){ return getMeterPlaybackConfig(ts).pulseUnits; }   // 4 simple · 6 compound · 8 cut
+  function sixteenthDur(){ return (60/state.bpm)/clockPulse(state.timeSig); }
+  var _grooveCache={};
+  function grooveGet(style, ts){
+    var k=style+'|'+ts+'|'+(isOdd(ts)?((state.oddGrouping&&state.oddGrouping[ts])||''):''); if(_grooveCache[k]) return _grooveCache[k];
+    var p=buildGroove(style, ts); _grooveCache[k]=p; return p;
+  }
+  // Build a one-bar drum pattern (positions in 16th-units) for 2/4, 3/4, the compound
+  // meters, and the odd meters. Kick/snare ride the felt beats; odd meters ride the group downbeats.
+  function buildGroove(style, ts){
+    var mg=meterGrid(ts), U=mg.units, P=mg.pulse, B=mg.beats, comp=(mg.kind==='compound'), odd=(mg.kind==='odd');
+    var eighths=[]; for(var s=0;s<U;s+=2) eighths.push(s);
+    var kick=[], snare=[], hat=[], open=[], ghost=[], clap=[];
+    if(odd){
+      var starts=oddGroupStartSixteenths(ts);       // group downbeats (sixteenths)
+      kick.push(starts[0]);
+      for(var gi=1;gi<starts.length;gi++) snare.push(starts[gi]);
+      if(style==='marching'){ kick=starts.slice(); snare=eighths.filter(function(x){ return starts.indexOf(x)<0; }); hat=[]; }
+      else if(style==='funk'){ hat=eighths.slice(); ghost=starts.slice(1).map(function(x){ return (x-2+U)%U; }).filter(function(x){ return starts.indexOf(x)<0; }); }
+      else if(style==='latin'){ hat=eighths.slice(); eighths.forEach(function(x){ if(starts.indexOf(x)<0 && (x/2)%2===1) kick.push(x); }); }
+      else { hat=eighths.slice(); open=[U-2]; }
+      return {kick:uniq(kick), snare:uniq(snare), hat:uniq(hat), open:uniq(open), ghost:uniq(ghost), clap:uniq(clap)};
+    }
+    var beatSubs=[]; for(var i=0;i<B;i++) beatSubs.push(i*P);
+    if(comp){
+      kick.push(beatSubs[0]);
+      if(B>=4) kick.push(beatSubs[2]);
+      for(var bi=0;bi<B;bi++){ if(kick.indexOf(beatSubs[bi])<0) snare.push(beatSubs[bi]); }
+    } else {
+      kick.push(0);
+      for(var bj=1;bj<B;bj++) snare.push(beatSubs[bj]);
+    }
+    if(style==='rock'){ hat=eighths.slice(); open=comp?[U-2]:[]; }
+    else if(style==='pop'){ hat=eighths.filter(function(s){ return (s%P===0)||((s/2)%2===0); }); clap=snare.slice(); }
+    else if(style==='funk'){ hat=eighths.slice(); ghost=snare.map(function(s){ return (s-2+U)%U; }).filter(function(s){ return beatSubs.indexOf(s)<0 && snare.indexOf(s)<0; }); open=comp?[U-2]:[]; }
+    else if(style==='latin'){ hat=eighths.slice(); eighths.forEach(function(s){ if(beatSubs.indexOf(s)<0 && (s/2)%2===1) kick.push(s); }); }
+    else if(style==='marching'){ kick=beatSubs.slice(); snare=[]; eighths.forEach(function(s){ if(beatSubs.indexOf(s)<0) snare.push(s); }); hat=[]; }
+    else { hat=eighths.slice(); }
+    return {kick:uniq(kick), snare:uniq(snare), hat:uniq(hat), open:uniq(open), ghost:uniq(ghost), clap:uniq(clap)};
+  }
+  function playGroovePattern(g, step, pulse, comp, t){
+    if(!g){ if(step % pulse === 0) click(t, step===0); return; }
+    if(g.kick && g.kick.indexOf(step)>=0) kick(t);
+    if(g.snare && g.snare.indexOf(step)>=0) snare(t);
+    if(g.clap && g.clap.indexOf(step)>=0) snare(t, 0.3);
+    if(g.ghost && g.ghost.indexOf(step)>=0) snare(t, 0.14);
+    if(g.hat && g.hat.indexOf(step)>=0){ if(g.open && g.open.indexOf(step)>=0) openhat(t); else hat(t, step % pulse===0?0.3:0.2); }
+    if(g.ride && g.ride.indexOf(step)>=0) hat(t, step % pulse===0?0.28:0.16);
+  }
+  // stepMusical = position within the current bar on a continuous grid — the groove
+  // (and click) run non-stop through prep, count and clap; only the visuals mark phases.
+  function playStep(globalStep, stepMusical, t){
+    if(state.sound==='none') return;
+    t = Math.max(t - LAT, audioCtx.currentTime);
+    var mg=meterGrid(state.timeSig);
+    if(state.sound==='metronome'){
+      if(stepMusical % mg.pulse === 0) click(t, stepMusical===0);
+      else if(mg.kind==='compound' && stepMusical % 2 === 0) click(t, false);
+      return;
+    }
+    var g = (state.timeSig==='4/4' || state.timeSig==='2/2') ? GROOVES[state.sound] : grooveGet(state.sound, state.timeSig);
+    playGroovePattern(g, stepMusical, mg.pulse, mg.kind==='compound', t);
+  }
+  function scheduler(){
+    var upb=getTotalUnits(state.timeSig);
+    while(nextStepTime < audioCtx.currentTime + SCHEDULE_AHEAD){
+      var stepMusical = STEP % upb;          // continuous groove; prep is whole bars so it stays aligned
+      playStep(STEP, stepMusical, nextStepTime);
+      vq.push({time:nextStepTime, step:STEP});
+      nextStepTime += sixteenthDur();
+      STEP++;
+    }
+    schedId = setTimeout(scheduler, LOOKAHEAD);
+  }
+  function rafDraw(){
+    if(audioCtx){
+      var now = audioCtx.currentTime;
+      if(resyncArmed && state.running && now >= resyncComeIn - 0.12) doResync();
+      while(vq.length && vq[0].time <= now){ var b=vq.shift(); onStep(b.time, b.step); }
+    }
+    rafId = requestAnimationFrame(rafDraw);
+  }
+  function doResync(){
+    resyncArmed=false;
+    if(pendingBpm) setBpm(pendingBpm);
+    pendingBpm=null;
+    nextStepTime = Math.max(resyncComeIn, audioCtx.currentTime + 0.03);
+    STEP=0; vq=[]; cardsDealt=0;
+    clearSweep();
+    setPhase('countin','Ready','\u2014'); setDots(0);
+    tapTimes=[];
+  }
+
+  // ---- tempo + tap (from Note Board) ----
+  var tempo=document.getElementById('tempo');
+  function setBpm(v){
+    v=Math.max(30, Math.min(300, v));
+    state.bpm=v;
+    tempo.value=Math.round(v);
+    var bi=document.getElementById('bpmInput'); if(bi) bi.value=Math.round(v);
+  }
+  var tapBtn=document.getElementById('tapBtn'), tapTimes=[];
+  function estimateInterval(times){
+    var n=times.length; if(n<2) return null;
+    var iv=[];
+    for(var i=1;i<n;i++) iv.push(times[i]-times[i-1]);
+    if(iv.length>=3) iv=iv.slice(1);
+    iv.sort(function(a,b){ return a-b; });
+    var m=iv.length;
+    return m%2 ? iv[(m-1)/2] : (iv[m/2-1]+iv[m/2])/2;
+  }
+  function tapTempo(){
+    ensureAudio();
+    if(songLoaded()){ tapBeatOne(); return; }      // repurposed as Beat 1 (bug #9)
+    var now=performance.now(), na=audioCtx.currentTime;
+    if(tapTimes.length && now - tapTimes[tapTimes.length-1] > 2000){ tapTimes=[]; }
+    if(tapTimes.length===0) anchorAudio = na;
+    tapTimes.push(now); lastTapAudio = na;
+    if(tapTimes.length>8) tapTimes.shift();
+    var iv=estimateInterval(tapTimes);
+    var bpm=(iv && iv>0) ? 60000/iv : null;
+    if(bpm){
+      if(state.running){
+        pendingBpm=bpm;
+        if(tapTimes.length===4){ resyncComeIn = lastTapAudio + 60/bpm; resyncArmed = true; }
+      } else { setBpm(bpm); }
+    }
+    tapBtn.classList.add('tapping');
+    setTimeout(function(){ tapBtn.classList.remove('tapping'); }, 110);
+  }
+  tapBtn.addEventListener('click', tapTempo);
+  document.addEventListener('keydown', function(e){
+    if(e.code==='Space' || e.key===' '){
+      var tag=(e.target&&e.target.tagName)||'';
+      if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+      e.preventDefault(); tapTempo();
+    }
+  });
+  tempo.addEventListener('input', function(){ state.bpm=+tempo.value; var bi=document.getElementById('bpmInput'); if(bi) bi.value=tempo.value; });
+  var bpmInput=document.getElementById('bpmInput');
+  bpmInput.addEventListener('input', function(){
+    var v=parseInt(this.value,10);
+    if(!isNaN(v)){ state.bpm=Math.max(30, Math.min(300, v)); tempo.value=state.bpm; }
+  });
+  bpmInput.addEventListener('change', function(){ setBpm(parseInt(this.value,10)||state.bpm); });
+  bpmInput.addEventListener('keydown', function(e){ if(e.key==='Enter'){ setBpm(parseInt(this.value,10)||state.bpm); this.blur(); } });
+
+  // ================= DRILL: phase box, dots, metronome dot =================
+  var metdot=document.getElementById('metdot');
+  var dotsWrap=document.getElementById('dots');
+  var dots=[];
+  function setupDots(){
+    var mi=getMeterPlaybackConfig(state.timeSig);
+    dotsWrap.innerHTML='';
+    for(var i=0;i<mi.pulsesPerMeasure;i++){ var d=document.createElement('span'); d.className='d'; dotsWrap.appendChild(d); }
+    dots=[].slice.call(dotsWrap.children);
+  }
+  function flashMet(){ metdot.classList.add('flash'); setTimeout(function(){metdot.classList.remove('flash');},110); }
+  function setDots(n){ dots.forEach(function(d,i){ d.classList.toggle('on', i<n); }); }
+  var phasebox=document.getElementById('phasebox'), phaseLabel=document.getElementById('phaseLabel'), phaseCount=document.getElementById('phaseCount');
+  function setPhase(cls, label, count){
+    phasebox.className='phasebox'+(cls?(' '+cls):'');
+    phaseLabel.textContent=label; phaseCount.textContent=count;
+  }
+
+  // ================= THE FLASH CARD: generate, render, strip =================
+  var PREP_BEATS = 4;    // at least four felt beats of "Get Ready", every meter
+  var prepBeats = 4;     // actual prep beats after rounding to whole bars
+  var cardMeasures=[], cardGeom=null, stripCells=[], cardUnits=0;
+  var prepLen=0, countLen=0, clapLen=0, cycleLen16=0;
+  var cardsDealt=0;
+
+  function isCompoundTS(ts){ return ts==='6/8'||ts==='9/8'||ts==='12/8'; }
+
+  function pickOne(arr, fallback){ return (arr && arr.length) ? arr[Math.floor(Math.random()*arr.length)] : fallback; }
+  function enabledForLevel(level){
+    var keys = getDefaultRhythmsForLevel(level, state.timeSig) || [];
+    var out=[];
+    keys.forEach(function(k){ var d=RHYTHM_DEFS[k]; if(d) out.push(Object.assign({key:k}, d)); });
+    return out;
+  }
+  // ---- focus filters ----
+  function isTripletEv(ev){ return ev.key && String(ev.key).indexOf('Triplet')>=0; }
+  function isDottedEv(ev){ return (ev.dots>0) || (ev.key && /dotted/i.test(ev.key)); }
+  function hasSyncopation(measures){
+    var pu=getMeterPlaybackConfig(state.timeSig).pulseUnits;
+    return measures.some(function(events){
+      var sub=0, hit=false;
+      events.forEach(function(ev){
+        var u=ev.units||0;
+        if(!eventIsRest(ev)){
+          var startsOff=(sub % pu)!==0;
+          var crossesBeat=Math.floor(sub/pu)!==Math.floor((sub+u-1)/pu);
+          if(startsOff && (crossesBeat || u>=pu)) hit=true;
+        }
+        sub+=u;
+      });
+      return hit;
+    });
+  }
+  function focusActive(){ var f=state.focus; return !!(f.sync||f.dotted||f.rests||f.triplet); }
+  function cardMatchesFocus(measures){
+    var f=state.focus, evs=measures.reduce(function(a,b){return a.concat(b);},[]);
+    if(f.triplet && !evs.some(isTripletEv)) return false;
+    if(f.dotted && !evs.some(isDottedEv)) return false;
+    if(f.rests && !evs.some(eventIsRest)) return false;
+    if(f.sync && !hasSyncopation(measures)) return false;
+    return true;
+  }
+  function makeCard(){
+    // Grab-bag pick of level + complexity for this card
+    state.level = pickOne(state.levels, 1);
+    state.difficulty = pickOne(state.difficulties, 'medium');
+    syncEngineDom();
+    if(isOdd(state.timeSig)) return generateOdd(state.timeSig, state.measures);
+    var enabled = state.customRhythms ? getEnabledRhythms() : enabledForLevel(state.level);
+    var tries = focusActive() ? 60 : 1, last=null;
+    for(var t=0;t<tries;t++){
+      var m;
+      try { m = generateMusicalRhythms(state.timeSig, state.measures, enabled); }
+      catch(e){ m = generateMusicalRhythms(state.timeSig, state.measures, []); }
+      last=m;
+      if(!focusActive() || cardMatchesFocus(m)) return m;
+    }
+    return last;   // focus couldn't be satisfied by the current pool — use the closest
+  }
+
+  // ---- card history (for Next / Previous / Hold) ----
+  var cardHistory=[], histIndex=-1;
+  function renderCurrent(){
+    var m = cardHistory[histIndex];
+    if(m){ cardMeasures=m; state.revealNow=false; renderCard(m); }
+  }
+  function advanceCard(){
+    var m=makeCard();
+    cardHistory.push(m);
+    if(cardHistory.length>60) cardHistory.shift();
+    histIndex=cardHistory.length-1;
+    renderCurrent();
+  }
+  function nextCard(){ if(histIndex < cardHistory.length-1){ histIndex++; renderCurrent(); } else advanceCard(); }
+  function prevCard(){ if(histIndex>0){ histIndex--; renderCurrent(); } }
+  function dealCard(){ advanceCard(); }
+  function dealPreviewCard(){ advanceCard(); }
+
+  function presentChromeHeight(){
+    var pb=document.querySelector('.playbar'), st=document.getElementById('statusbar');
+    return (pb?pb.offsetHeight:0) + (st?st.offsetHeight:0) + 84;
+  }
+  function doRenderCard(measures, scale, rowH, forcedW){
+    var staff=document.getElementById('cardStaff');
+    staff.innerHTML='';
+    var present=document.body.classList.contains('present');
+    var W = forcedW || staff.clientWidth || (present?1000:700);
+    W = Math.max(360, Math.min(1400, W));
+    try{
+      cardGeom = renderOneLineWithVexFlow(
+        staff, null, state.timeSig, measures, 0, measures.length, isCompoundTS(state.timeSig),
+        true, { lineWidth:W, verticalScale:scale, answerGapPx:8, rowHeight:rowH, wsLevel:state.level,
+                oddBeatUnits: isOdd(state.timeSig) ? (currentGrouping(state.timeSig)||[]).map(function(g){return g*2;}) : null }
+      );
+    }catch(e){
+      console.warn('render failed', e);
+      staff.innerHTML='<div class="cardmsg" style="color:#c0504d">Couldn\u2019t render this rhythm. Press Play for a fresh card.</div>';
+      cardGeom=null;
+    }
+    var strip=document.getElementById('cardStrip');
+    strip.style.fontSize='20px'; strip.style.height='';
+    var svg=staff.querySelector('svg');
+    var scaleWrap=document.getElementById('cardScale');
+    if(present && svg){
+      // fix the SVG at its natural pixel size so the strip aligns to it, then zoom the wrapper
+      var natW=(cardGeom&&cardGeom.svgW)||W;
+      svg.style.width=natW+'px';
+      svg.style.height=((cardGeom&&cardGeom.lineH)||rowH)+'px';
+      svg.style.display='block';
+      scaleWrap.style.width=natW+'px';
+    } else if(svg){ svg.style.width='100%'; }
+    buildStrip(measures);     // aligns syllables to the (untransformed) natural geometry
+  }
+  function renderCard(measures){
+    var present=document.body.classList.contains('present');
+    var scaleWrap=document.getElementById('cardScale');
+    scaleWrap.style.transform='none';
+    if(!present){ scaleWrap.style.width='100%'; doRenderCard(measures, 1.18, 128); return; }
+    // Full-screen: render once at a fixed, safe size, then uniformly zoom the whole
+    // wrapper (notes + staff + syllables) to fill the space. VexFlow never sees an
+    // extreme scale, so the notation can't break — it's just a CSS zoom.
+    doRenderCard(measures, 1.3, 152, 760);
+    var natW=scaleWrap.offsetWidth||760, natH=scaleWrap.offsetHeight||220;
+    var card=document.getElementById('card').getBoundingClientRect();
+    var availW=Math.max(200, card.width - 24), availH=Math.max(160, card.height - 16);
+    var k=Math.max(1, Math.min(5.5, Math.min(availW/natW, availH/natH)));
+    scaleWrap.style.transform='scale('+k+')';
+  }
+
+  function tripSyl(k){ return ['Tri','pl','let'][k] || 'let'; }
+  function pushCell(mi, startTick, endTick, isRest, syl, beatstart){
+    var cell=document.createElement('div');
+    cell.className='scell'+(isRest?' rest':' attack')+(beatstart?' beatstart':'');
+    var s=document.createElement('span'); s.className='syl'; s.textContent=syl; cell.appendChild(s);
+    var obj={el:cell, mi:mi, startTick:startTick, endTick:endTick, isRest:isRest, syl:syl, beatstart:beatstart};
+    stripCells.push(obj); return obj;
+  }
+  function buildStrip(measures){
+    var strip=document.getElementById('cardStrip');
+    strip.innerHTML=''; stripCells=[];
+    var pu=getMeterPlaybackConfig(state.timeSig).pulseUnits;
+    var upb=getTotalUnits(state.timeSig);
+    var bset=beatStartSet(state.timeSig);
+    function isBeat(sub){ return !!bset[((sub%upb)+upb)%upb]; }
+    var mnd=(cardGeom && cardGeom.measureNoteData)||null;
+    var svgEl=document.querySelector('#cardStaff svg');
+    var haveGeom=!!(mnd && mnd.length===measures.length && svgEl);
+    cardUnits = state.measures*upb;
+
+    // Build the ordered list of cells (one per rendered notehead; triplets → 3 cells)
+    var cells=[];  // {mi,startTick,endTick,isRest,syl,beatstart,noteIndex}
+    measures.forEach(function(events, mi){
+      var syls=getCountingSyllables(events, state.timeSig);
+      var g=haveGeom?mnd[mi]:null;
+      var evStart=[], acc=0; events.forEach(function(ev,ei){ evStart[ei]=acc; acc+=ev.units||0; });
+      if(g && g.staveNotes && g.noteSourceEvent){
+        var tripCount={};
+        for(var j=0;j<g.staveNotes.length;j++){
+          var ei=g.noteSourceEvent[j]; var ev=events[ei]; if(!ev) continue;
+          var isTrip=ev.key && String(ev.key).includes('Triplet');
+          var isRest=eventIsRest(ev), syl, stLocal, span;
+          if(isTrip && !isRest){ var k=tripCount[ei]||0; tripCount[ei]=k+1; syl=tripSyl(k); span=(ev.units||0)/3; stLocal=evStart[ei]+k*span; }
+          else { syl=(syls[ei]!=null?syls[ei]:''); span=ev.units||0; stLocal=evStart[ei]; }
+          cells.push({ mi:mi, startTick:mi*upb+stLocal, endTick:mi*upb+stLocal+span, isRest:isRest,
+                       syl:syl, beatstart:isBeat(stLocal), noteIndex:j });
+        }
+      } else {
+        // no geometry: fall back to event walk (triplets still split into 3)
+        var lt=0;
+        events.forEach(function(ev, ei){
+          var units=ev.units||0; if(units<=0) return;
+          var isTrip=ev.key && String(ev.key).includes('Triplet'), isRest=eventIsRest(ev);
+          if(isTrip && !isRest){ for(var k=0;k<3;k++){ cells.push({mi:mi,startTick:mi*upb+lt+k*units/3,endTick:mi*upb+lt+(k+1)*units/3,isRest:false,syl:tripSyl(k),beatstart:(isBeat(lt) && k===0),noteIndex:null}); } }
+          else { cells.push({mi:mi,startTick:mi*upb+lt,endTick:mi*upb+lt+units,isRest:isRest,syl:(syls[ei]!=null?syls[ei]:''),beatstart:isBeat(lt),noteIndex:null}); }
+          lt+=units;
+        });
+      }
+    });
+
+    // Try to align each cell under its real notehead using screen coordinates
+    // (this correctly accounts for the clef + time-signature space and any SVG scaling).
+    var aligned=false, xpx=[];
+    if(haveGeom){
+      var ctm=null; try{ ctm=svgEl.getScreenCTM(); }catch(e){}
+      var stripRect=strip.getBoundingClientRect();
+      var svgW=(cardGeom.svgW)||0;
+      var flatX=[], k2=0;
+      // flat realX aligned to cells order (same walk as staveNotes)
+      var okAll=true;
+      cells.forEach(function(c){
+        var x=null;
+        if(c.noteIndex!=null){
+          var g=mnd[c.mi];
+          if(g && g.realX && g.realX[c.noteIndex]!=null) x=g.realX[c.noteIndex];
+        }
+        if(x==null) okAll=false;
+        flatX.push(x);
+      });
+      if(okAll && ctm && svgEl.createSVGPoint){
+        aligned=true;
+        for(var i=0;i<flatX.length;i++){
+          var p=svgEl.createSVGPoint(); p.x=flatX[i]; p.y=0;
+          var s=p.matrixTransform(ctm); xpx.push(s.x - stripRect.left);
+        }
+      } else if(okAll && svgW){
+        aligned=true;
+        var W0=strip.clientWidth||1;
+        for(var i2=0;i2<flatX.length;i2++){ xpx.push((flatX[i2]/svgW)*W0); }
+      }
+    }
+
+    if(aligned){
+      strip.classList.add('aligned');
+      var W=strip.clientWidth||1;
+      // adaptive syllable size: shrink when notes are packed tight so text never collides
+      var minGap=Infinity;
+      for(var gi=1;gi<xpx.length;gi++){ var d=xpx[gi]-xpx[gi-1]; if(d>0 && d<minGap) minGap=d; }
+      if(!isFinite(minGap)) minGap=40;
+      var fontPx=Math.max(10, Math.min(20, Math.round(minGap/1.9)));
+      strip.style.fontSize=fontPx+'px';
+      // beat dividers first, as a faint layer BEHIND the numbers
+      for(var d2=0; d2<cells.length; d2++){
+        if(!cells[d2].beatstart) continue;
+        var bx=xpx[d2];
+        var prevx=(d2>0)?xpx[d2-1]:(bx-24);
+        var divx=bx - Math.min(12, Math.max(6, (bx-prevx)/2));   // sit in the gap before the beat number
+        var bd=document.createElement('div'); bd.className='beatdiv'; bd.style.left=divx+'px';
+        strip.appendChild(bd);
+      }
+      for(var m=0;m<cells.length;m++){
+        var c=cells[m];
+        var left=xpx[m];
+        var right=(m+1<cells.length)?xpx[m+1]:W;
+        var o=pushCell(c.mi,c.startTick,c.endTick,c.isRest,c.syl,c.beatstart);
+        o.el.style.left=left+'px';
+        o.el.style.width=Math.max(8,(right-left))+'px';
+        strip.appendChild(o.el);
+      }
+    } else {
+      // proportional fallback (per-measure flex rows, widths ∝ duration)
+      strip.classList.remove('aligned');
+      var byMeasure={};
+      cells.forEach(function(c){ (byMeasure[c.mi]=byMeasure[c.mi]||[]).push(c); });
+      measures.forEach(function(events, mi){
+        var mdiv=document.createElement('div'); mdiv.className='stripmeasure';
+        (byMeasure[mi]||[]).forEach(function(c){
+          var o=pushCell(c.mi,c.startTick,c.endTick,c.isRest,c.syl,c.beatstart);
+          o.el.style.flexGrow=String(Math.max(1,(c.endTick-c.startTick)));
+          mdiv.appendChild(o.el);
+        });
+        strip.appendChild(mdiv);
+      });
+    }
+    applyStaticSyllables();
+  }
+  function applyStaticSyllables(){
+    var showAll = (state.syllables==='on') || state.revealNow;
+    stripCells.forEach(function(c){ c.el.classList.toggle('showsyl', showAll); });
+  }
+  function clearSweep(){
+    stripCells.forEach(function(c){ c.el.classList.remove('lit','hit'); });
+    if(state.syllables!=='on' && !state.revealNow){ stripCells.forEach(function(c){ c.el.classList.remove('showsyl'); }); }
+  }
+  function toggleReveal(){
+    state.revealNow=!state.revealNow;
+    var b=document.getElementById('revealBtn'); if(b) b.classList.toggle('tapping', state.revealNow);
+    applyStaticSyllables();
+  }
+
+  function computeCycleLens(){
+    var mpc=getMeterPlaybackConfig(state.timeSig);
+    var pu=mpc.pulseUnits, bpb=mpc.pulsesPerMeasure;
+    var upb=getTotalUnits(state.timeSig);
+    // Odd meters count the Get Ready by felt GROUPS (2+3), not by each eighth — so the
+    // count-off doesn't start from "5" or "7". Other meters count their normal beat.
+    var prepUnitPerBar = isOdd(state.timeSig) ? oddGroupStartSixteenths(state.timeSig).length : bpb;
+    var prepBars = Math.max(1, Math.ceil((state.prepBeatsTarget||4) / prepUnitPerBar));
+    prepBeats = prepBars * prepUnitPerBar;              // felt beats shown in the count-off
+    prepLen  = prepBars * upb;
+    countLen = state.measures * upb;
+    clapLen  = (state.steps==='countclap') ? countLen : 0;
+    cycleLen16 = prepLen + countLen + clapLen;           // always a whole number of bars
+    cardUnits = countLen;
+  }
+
+  // Schedule the "Hear It" tones for one pass of the card, precisely timed.
+  // Mirrors the worksheet: expandPlaybackEvents splits triplets into 3 even slices,
+  // each sounded via unitsToSeconds — so triplets play all three notes, not just the first.
+  function scheduleHearIt(baseTime){
+    if(!state.hearIt || !audioCtx) return;
+    var pu=getMeterPlaybackConfig(state.timeSig).pulseUnits, bpm=state.bpm;
+    var t=baseTime;
+    cardMeasures.forEach(function(events){
+      expandPlaybackEvents(events).forEach(function(ev){
+        var durSec=unitsToSeconds(ev.units, bpm, pu);
+        if(!ev.isRest && !ev.tiedFromPrev){ rhythmTone(Math.max(t - LAT, audioCtx.currentTime), durSec); }
+        t += durSec;
+      });
+    });
+  }
+
+  function sweep(tick, phase){
+    var upb=getTotalUnits(state.timeSig);
+    var pu=getMeterPlaybackConfig(state.timeSig).pulseUnits;
+    var cell=null;
+    for(var i=0;i<stripCells.length;i++){
+      if(tick>=stripCells[i].startTick && tick<stripCells[i].endTick){ cell=stripCells[i]; break; }
+    }
+    if(state.syllables==='last'){
+      var reveal=false;
+      if(phase==='clap'){
+        reveal=true;                                   // Count+Clap: reveal the whole card while they clap/play it
+      } else if(state.steps==='countclap'){
+        reveal=false;                                  // ...so keep it hidden during the Count It pass
+      } else if(state.measures===1){
+        var thr=Math.max(0, countLen - 2*pu); if(thr<=0) thr=Math.floor(countLen/2);
+        reveal = tick>=thr;                            // single bar: reveal the last ~2 beats
+      } else {
+        reveal = tick >= (state.measures-1)*upb;       // multi-bar: reveal the whole line in the final measure
+      }
+      stripCells.forEach(function(c){ c.el.classList.toggle('showsyl', reveal); });
+    }
+    stripCells.forEach(function(c){ c.el.classList.toggle('lit', c===cell); });
+    if(cell && tick===cell.startTick && !cell.isRest){
+      cell.el.classList.add('hit');
+      var dur=Math.min(220, sixteenthDur()*1000*0.95);
+      var el=cell.el; setTimeout(function(){ el.classList.remove('hit'); }, dur);
+    }
+  }
+
+  // ================= per-16th step handler (cycle position derived from STEP) =================
+  function onStep(t, step){
+    if(!state.running) return;
+    var mi=getMeterPlaybackConfig(state.timeSig);
+    var pu=mi.pulseUnits, upb=getTotalUnits(state.timeSig);
+    var pos = cycleLen16>0 ? (step % cycleLen16) : step;
+
+    if(pos===0){
+      if(cardsDealt>0){
+        if(state.speedTrainer && state.sound!=='none') setBpm(Math.min(300, state.bpm+2));
+        if(state.autoAdvance) advanceCard();
+      } else if(histIndex<0){
+        advanceCard();
+      }
+      cardsDealt++;
+    }
+    if(pos % pu === 0) flashMet();
+
+    if(pos < prepLen){
+      var b;
+      if(isOdd(state.timeSig)){
+        var starts=oddGroupStartSixteenths(state.timeSig), upbO=getTotalUnits(state.timeSig);
+        var inBar=pos%upbO, gIdx=0;
+        for(var gi2=0;gi2<starts.length;gi2++){ if(inBar>=starts[gi2]) gIdx=gi2; }
+        b=Math.floor(pos/upbO)*starts.length + gIdx;    // felt-group index
+      } else {
+        b=Math.floor(pos/pu);                           // 0..prepBeats-1
+      }
+      setPhase('prep','Get Ready', String(Math.max(1, prepBeats - b)));
+      setDots(0);
+      clearSweep();
+    } else if(pos < prepLen+countLen){
+      var tick=pos-prepLen;
+      if(tick===0) scheduleHearIt(t);
+      setPhase('count','Count It', String(Math.floor((tick % upb)/pu)+1));
+      setDots(Math.floor((tick % upb)/pu)+1);
+      sweep(tick, 'count');
+    } else {
+      var tick2=pos-prepLen-countLen;
+      if(tick2===0) scheduleHearIt(t);
+      setPhase('clap','Clap It', String(Math.floor((tick2 % upb)/pu)+1));
+      setDots(Math.floor((tick2 % upb)/pu)+1);
+      sweep(tick2, 'clap');
+    }
+  }
+
+  // ================= start / stop =================
+  var go=document.getElementById('go');
+  go.addEventListener('click', function(){ state.running ? stop() : start(); });
+  // ================= Your Own Music: song beat-sync =================
+  // Ported per the deploy brief: onset envelope (OfflineAudioContext) -> comb-filter
+  // tempo search with a log-normal prior -> bass-band bar phase. The song plays through
+  // OUR audio clock, so the drill and the music cannot drift apart.
+  var song = {
+    file:null, name:'', buffer:null, src:null, gain:null, playing:false,
+    bpm:0, beatSec:0, barBeats:0, barLen:4, vol:0.9,
+    startAudio:0, startOffset:0,
+    envLow:null, fps:0, timeSig:'4/4', saved:false
+  };
+  function songLoaded(){ return !!song.buffer; }
+  function barLenForMeter(){
+    try { return Math.max(1, getMeterPlaybackConfig(state.timeSig).pulsesPerMeasure|0); } catch(e){ return 4; }
+  }
+  // Factor 3 where the grouping/subdivision is in threes, else 2 (brief: meter-aware octave fix)
+  function octaveFactor(){
+    var ts=state.timeSig;
+    return (ts==='3/4' || ts==='6/8' || ts==='9/8' || ts==='12/8') ? 3 : 2;
+  }
+  function pulseName(){
+    var ts=state.timeSig;
+    if(ts==='2/2') return '(half note)';
+    if(ts==='6/8'||ts==='9/8'||ts==='12/8') return '(dotted quarter)';
+    if(ts==='5/8'||ts==='7/8') return '(eighth)';
+    return '(quarter)';
+  }
+  function songMsg(txt, cls){
+    var el=document.getElementById('songStat'); if(!el) return;
+    el.textContent=txt; el.className='songstat'+(cls?' '+cls:'');
+  }
+
+  // ---- 1. onset envelope -------------------------------------------------
+  function buildOnsetEnvelope(buffer){
+    var SR=22050, len=Math.max(1, Math.ceil(buffer.duration*SR));
+    var OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+    var off=new OAC(2, len, SR);
+    var src=off.createBufferSource(); src.buffer=buffer;
+    var merger=off.createChannelMerger(2);
+    var lp=off.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=180;
+    src.connect(lp); lp.connect(merger, 0, 0);                       // ch0 = bass (bar phase)
+    var bp1=off.createBiquadFilter(); bp1.type='bandpass'; bp1.frequency.value=3200; bp1.Q.value=0.7;
+    var bp2=off.createBiquadFilter(); bp2.type='bandpass'; bp2.frequency.value=900;  bp2.Q.value=0.6;
+    var g2=off.createGain(); g2.gain.value=0.9;                      // 900 Hz band: soft MIDI/orchestral attacks
+    src.connect(bp1); bp1.connect(merger, 0, 1);
+    src.connect(bp2); bp2.connect(g2); g2.connect(merger, 0, 1);
+    merger.connect(off.destination);
+    src.start(0);
+    return off.startRendering().then(function(rendered){
+      var low=rendered.getChannelData(0), high=rendered.getChannelData(1);
+      var hop=256, n=Math.floor(rendered.length/hop), fps=SR/hop;   // ~86 fps
+      var eAll=new Float32Array(n), eLow=new Float32Array(n);
+      for(var i=0;i<n;i++){
+        var s=i*hop, ls=0, hs=0;
+        for(var j=0;j<hop;j++){ var a=low[s+j]||0, b=high[s+j]||0; ls+=a*a; hs+=b*b; }
+        eLow[i]=Math.log(1 + ls/hop*400);
+        eAll[i]=Math.log(1 + (ls*1.5 + hs)/hop*400);
+      }
+      var env=new Float32Array(n), envLow=new Float32Array(n);
+      for(var k=1;k<n;k++){                                          // half-wave-rectified rising energy
+        env[k]   =Math.max(0, eAll[k]-eAll[k-1]);
+        envLow[k]=Math.max(0, eLow[k]-eLow[k-1]);
+      }
+      return {env:env, envLow:envLow, fps:fps};
+    });
+  }
+
+  // ---- 2. tempo + beat phase (comb filter + tempo prior) -----------------
+  function detectTempoFromEnvelope(env, fps, minBpm, maxBpm){
+    minBpm=minBpm||40; maxBpm=maxBpm||220;
+    var n=env.length; if(n<16) return {bpm:120, phaseFrames:0, beatSec:0};
+    var mean=0, i;
+    for(i=0;i<n;i++) mean+=env[i];
+    mean/=n;
+    var e=new Float32Array(n);
+    for(i=0;i<n;i++){ var v=env[i]-mean; e[i]= v>0 ? v : 0; }
+    function at(x){
+      if(x<0 || x>=n-1) return 0;
+      var i0=x|0, f=x-i0;
+      return e[i0]*(1-f) + e[i0+1]*f;
+    }
+    var bestScore=-1, bestBpm=120, bestPhase=0;
+    for(var bpm=minBpm; bpm<=maxBpm+1e-9; bpm+=0.25){
+      var period=fps*60/bpm;
+      var nb=Math.floor((n-1)/period);
+      if(nb<8) continue;                                             // need >=8 beats to trust it
+      var prior=Math.exp(-0.5*Math.pow(Math.log2(bpm/120)/0.9, 2));  // else it always picks half-tempo
+      for(var p=0;p<24;p++){
+        var ph=period*p/24, sum=0;
+        for(var k=0;k<nb;k++) sum+=at(ph + k*period);
+        var sc=(sum/nb)*prior;
+        if(sc>bestScore){ bestScore=sc; bestBpm=bpm; bestPhase=ph; }
+      }
+    }
+    var per2=fps*60/bestBpm, nb2=Math.max(1, Math.floor((n-1)/per2)), bs=-1, bp=bestPhase;
+    for(var q=0;q<200;q++){                                          // refine phase within one period
+      var ph2=per2*q/200, s2=0;
+      for(var k2=0;k2<nb2;k2++) s2+=at(ph2 + k2*per2);
+      if(s2>bs){ bs=s2; bp=ph2; }
+    }
+    return {bpm:bestBpm, phaseFrames:bp, beatSec:bp/fps};
+  }
+
+  // ---- 3. bar phase from the bass band ----------------------------------
+  function pickBarPhase(envLow, fps, bpm, phaseFrames, barLen){
+    barLen=Math.max(1, barLen|0);
+    var n=envLow.length, period=fps*60/bpm;
+    if(!n || !isFinite(period) || period<=0) return 0;
+    function at(x){
+      if(x<0 || x>=n-1) return 0;
+      var i0=x|0, f=x-i0;
+      return envLow[i0]*(1-f) + envLow[i0+1]*f;
+    }
+    var sums=new Float64Array(barLen), cnts=new Float64Array(barLen);
+    var nb=Math.floor((n-1-phaseFrames)/period);
+    for(var k=0;k<nb;k++){
+      var idx=k % barLen;
+      sums[idx]+=at(phaseFrames + k*period); cnts[idx]++;
+    }
+    var arg=0, best=-1;
+    for(var i=0;i<barLen;i++){
+      var v=cnts[i] ? sums[i]/cnts[i] : 0;
+      if(v>best){ best=v; arg=i; }
+    }
+    return arg;   // barBeats = the index where (k % barLen) === arg  (brief bug #1)
+  }
+  function normBarBeats(){
+    song.barLen=Math.max(1, song.barLen|0);
+    song.barBeats=((song.barBeats % song.barLen) + song.barLen) % song.barLen;   // brief bug #2
+  }
+
+  // ---- 4. playback + clock lock -----------------------------------------
+  function songPeriod(){ return 60/Math.max(1, song.bpm); }
+  function songPosNow(){ return (audioCtx.currentTime - song.startAudio) + song.startOffset; }
+  function songBeatTime(k){ return song.startAudio - song.startOffset + song.beatSec + k*songPeriod(); }
+  function nextDownbeatIndex(lead){
+    var period=songPeriod();
+    var k=Math.ceil((songPosNow() + (lead||0.15) - song.beatSec)/period);
+    var guard=0;
+    while((((k % song.barLen)+song.barLen)%song.barLen) !== song.barBeats && guard++ < 128) k++;  // bounded (bug #2)
+    return k;
+  }
+  function stopSongPlayback(){
+    if(song.src){ try{ song.src.onended=null; song.src.stop(); }catch(e){} }
+    song.src=null; song.playing=false;
+  }
+  function startSongPlayback(offset){
+    ensureAudio();
+    stopSongPlayback();
+    if(!song.gain){ song.gain=audioCtx.createGain(); song.gain.connect(master); }
+    song.gain.gain.value=song.vol;
+    var src=audioCtx.createBufferSource();
+    src.buffer=song.buffer; src.connect(song.gain);
+    var t=audioCtx.currentTime + 0.12;
+    song.startOffset=Math.max(0, offset||0);
+    song.startAudio=t;
+    src.start(t, song.startOffset);
+    src.onended=function(){ if(song.src===src){ song.playing=false; if(state.running) stop(); } };
+    song.src=src; song.playing=true;
+  }
+
+  // ---- 5. lock the drill onto the song's grid ----------------------------
+  function hardResetDrillAt(k){
+    if(schedId) clearTimeout(schedId);
+    if(rafId) cancelAnimationFrame(rafId);
+    vq=[]; STEP=0; cardsDealt=0;
+    resyncArmed=false; pendingBpm=null;
+    computeCycleLens();
+    clearSweep(); setPhase('', 'Ready', '\u2014'); setDots(0);
+    state.running=true;
+    nextStepTime=songBeatTime(k);
+    go.textContent='\u25a0 Stop'; go.classList.add('running');
+    scheduler(); rafDraw();
+  }
+  function startWithSong(){
+    ensureAudio();
+    if(!song.playing) startSongPlayback(0);
+    setBpm(song.bpm);
+    normBarBeats();
+    hardResetDrillAt(nextDownbeatIndex(0.25));
+  }
+  // Tap Beat 1: snap to the NEAREST existing beat (tempo & phase untouched), come in a FULL BAR later
+  function tapBeatOne(){
+    if(!songLoaded()) return false;
+    ensureAudio();
+    if(!song.playing) startSongPlayback(0);
+    var period=songPeriod();
+    var pos=songPosNow() - LAT;
+    var k=Math.round((pos - song.beatSec)/period);
+    song.barLen=barLenForMeter();
+    song.barBeats=((k % song.barLen) + song.barLen) % song.barLen;
+    hardResetDrillAt(k + song.barLen);                               // brief bug #4
+    var b=document.getElementById('songBeat1');
+    if(b){ b.classList.add('tapping'); setTimeout(function(){ b.classList.remove('tapping'); }, 140); }
+    autoPersistSong(); refreshSongUI();
+    return true;
+  }
+  function shiftDownbeat(delta){
+    if(!songLoaded()) return;
+    song.barBeats=song.barBeats+delta; normBarBeats();
+    if(state.running && song.playing) hardResetDrillAt(nextDownbeatIndex(0.2));
+    autoPersistSong(); refreshSongUI();
+  }
+  function nudgePhase(ms){
+    if(!songLoaded()) return;
+    song.beatSec+=ms/1000;
+    if(state.running && song.playing) hardResetDrillAt(nextDownbeatIndex(0.2));
+    autoPersistSong(); refreshSongUI();
+  }
+  function songOctave(dir){
+    if(!songLoaded()) return;
+    var f=octaveFactor(), nb=(dir>0) ? song.bpm*f : song.bpm/f;
+    var MIN=30, MAX=330;                                             // widened while locked (bug #3)
+    if(nb<MIN || nb>MAX){
+      songMsg('Can\u2019t '+(dir>0?'\u00d7':'\u00f7')+f+': that would be '+(Math.round(nb*10)/10)+' bpm (limit '+MIN+'\u2013'+MAX+').', 'err');
+      return;
+    }
+    song.bpm=nb;
+    if(song.envLow && song.fps) song.barBeats=pickBarPhase(song.envLow, song.fps, song.bpm, song.beatSec*song.fps, song.barLen);
+    normBarBeats();
+    setBpm(song.bpm);
+    if(state.running && song.playing) hardResetDrillAt(nextDownbeatIndex(0.2));
+    songMsg('Tempo set to '+Math.round(song.bpm)+' bpm.');
+    autoPersistSong(); refreshSongUI();
+  }
+  // Meter change must RE-DERIVE the downbeat; tempo correctly does not change (bug #6)
+  function onMeterChangedForSong(){
+    song.barLen=barLenForMeter();
+    if(songLoaded() && song.envLow && song.fps){
+      song.barBeats=pickBarPhase(song.envLow, song.fps, song.bpm, song.beatSec*song.fps, song.barLen);
+    }
+    normBarBeats();
+    if(songLoaded()){
+      if(state.running && song.playing) hardResetDrillAt(nextDownbeatIndex(0.2));
+      autoPersistSong(); refreshSongUI();
+    }
+  }
+
+  // ---- 6. load / analyse -------------------------------------------------
+  function applySongLock(on){
+    var ids=['tempo','bpmInput','speedToggle'];
+    ids.forEach(function(id){ var el=document.getElementById(id); if(el) el.disabled=!!on; });
+    var lab=document.getElementById('tempoLab');
+    if(lab) lab.textContent = on ? 'Tempo (from song)' : 'Tempo';
+    var sp=document.getElementById('speedToggle');
+    if(on && sp && sp.checked){ sp.checked=false; state.speedTrainer=false; }
+    var spWrap=sp&&sp.parentElement; if(spWrap) spWrap.classList.toggle('locked', !!on);
+    var tw=document.getElementById('tempo'); if(tw&&tw.parentElement) tw.parentElement.classList.toggle('locked', !!on);
+    // the play-bar tap button becomes "Beat 1" while a song owns the clock
+    if(tapBtn) tapBtn.textContent = on ? 'Beat 1' : 'Tap';
+    if(on){ state.sound='none'; syncSeg('soundSeg','data-s','none'); }   // groove off (bug #10)
+    document.getElementById('songRemove').disabled=!on;
+    document.getElementById('songCtl').hidden=!on;
+    document.getElementById('songCtl2').hidden=!on;
+    var bg=document.getElementById('songBadgeGrp'); if(bg) bg.hidden=!on;
+  }
+  function refreshSongUI(){
+    var bpmEl=document.getElementById('songBpm'); if(bpmEl) bpmEl.textContent = songLoaded()? (Math.round(song.bpm*10)/10) : '\u2014';
+    var un=document.getElementById('songUnit'); if(un) un.textContent = songLoaded()? pulseName() : '';
+    var f=octaveFactor();
+    var f1=document.getElementById('songF1'), f2=document.getElementById('songF2');
+    if(f1) f1.textContent=f; if(f2) f2.textContent=f;
+    var badge=document.getElementById('songBadge');
+    if(badge) badge.textContent = song.name ? ('\u266a '+song.name) : '';
+    var sv=document.getElementById('songSave');
+    if(sv) sv.textContent = song.saved ? 'Saved \u2713' : 'Save Song';
+    var vol=document.getElementById('songVol'); if(vol) vol.value=Math.round(song.vol*100);
+  }
+  function loadSongFromFile(file){
+    if(!file) return;
+    ensureAudio();
+    song.file=file; song.name=file.name.replace(/\.[^.]+$/,'');
+    song.saved=false;
+    songMsg('Reading \u201c'+song.name+'\u201d\u2026', 'busy');
+    var fr=new FileReader();
+    fr.onerror=function(){ songMsg('Couldn\u2019t read that file.', 'err'); };
+    fr.onload=function(){
+      songMsg('Analysing tempo & downbeat\u2026', 'busy');
+      // keep the File for saving \u2014 decodeAudioData can detach the ArrayBuffer (bug #7)
+      audioCtx.decodeAudioData(fr.result.slice(0), function(buf){
+        song.buffer=buf;
+        buildOnsetEnvelope(buf).then(function(r){
+          song.envLow=r.envLow; song.fps=r.fps;
+          var t=detectTempoFromEnvelope(r.env, r.fps, 40, 220);
+          song.bpm=t.bpm; song.beatSec=t.beatSec;
+          song.barLen=barLenForMeter();
+          song.barBeats=pickBarPhase(r.envLow, r.fps, t.bpm, t.phaseFrames, song.barLen);
+          normBarBeats();
+          song.timeSig=state.timeSig;
+          applySongLock(true); setBpm(song.bpm); refreshSongUI();
+          songMsg('Found '+Math.round(song.bpm)+' bpm. Press Play \u2014 use Tap Beat 1 if the downbeat is off.');
+          refreshSongList();
+        }).catch(function(err){
+          console.warn('envelope failed', err);
+          songMsg('Couldn\u2019t analyse that track.', 'err');
+        });
+      }, function(){ songMsg('Couldn\u2019t decode that audio file.', 'err'); });
+    };
+    fr.readAsArrayBuffer(file);
+  }
+  function removeSong(){
+    stopSongPlayback();
+    if(state.running) stop();
+    song.file=null; song.name=''; song.buffer=null; song.envLow=null; song.fps=0; song.bpm=0; song.saved=false;
+    applySongLock(false); refreshSongUI();
+    songMsg('No song loaded.');
+  }
+
+  // ---- 7. saved songs (IndexedDB; localStorage can't hold audio) ---------
+  var SONG_DB='rhythmTrainerSongs', SONG_STORE='songs';
+  function idbAvailable(){ return !!window.indexedDB && location.protocol!=='file:'; }   // bug #8
+  function idbOpen(){
+    return new Promise(function(res, rej){
+      var r=indexedDB.open(SONG_DB, 1);
+      r.onupgradeneeded=function(){
+        var db=r.result;
+        if(!db.objectStoreNames.contains(SONG_STORE)) db.createObjectStore(SONG_STORE, {keyPath:'name'});
+      };
+      r.onsuccess=function(){ res(r.result); };
+      r.onerror=function(){ rej(r.error); };
+    });
+  }
+  function idbPut(rec){
+    return idbOpen().then(function(db){
+      return new Promise(function(res, rej){
+        var tx=db.transaction(SONG_STORE,'readwrite');
+        tx.objectStore(SONG_STORE).put(rec);
+        tx.oncomplete=function(){ res(true); }; tx.onerror=function(){ rej(tx.error); };
+      });
+    });
+  }
+  function idbAll(){
+    return idbOpen().then(function(db){
+      return new Promise(function(res, rej){
+        var tx=db.transaction(SONG_STORE,'readonly'), rq=tx.objectStore(SONG_STORE).getAll();
+        rq.onsuccess=function(){ res(rq.result||[]); }; rq.onerror=function(){ rej(rq.error); };
+      });
+    });
+  }
+  function idbGet(name){
+    return idbOpen().then(function(db){
+      return new Promise(function(res, rej){
+        var tx=db.transaction(SONG_STORE,'readonly'), rq=tx.objectStore(SONG_STORE).get(name);
+        rq.onsuccess=function(){ res(rq.result||null); }; rq.onerror=function(){ rej(rq.error); };
+      });
+    });
+  }
+  function idbDel(name){
+    return idbOpen().then(function(db){
+      return new Promise(function(res, rej){
+        var tx=db.transaction(SONG_STORE,'readwrite');
+        tx.objectStore(SONG_STORE).delete(name);
+        tx.oncomplete=function(){ res(true); }; tx.onerror=function(){ rej(tx.error); };
+      });
+    });
+  }
+  function songRecord(){
+    return { name:song.name, blob:song.file, bpm:song.bpm, beatSec:song.beatSec,
+             barBeats:song.barBeats, barLen:song.barLen, vol:song.vol,
+             timeSig:state.timeSig, savedAt:Date.now() };
+  }
+  function saveSong(){
+    if(!songLoaded()) return;
+    if(!idbAvailable()){ songMsg('Saving songs needs the hosted (https) version.', 'err'); return; }
+    if(!song.file){ songMsg('This song came from storage \u2014 settings save automatically.'); return; }
+    idbPut(songRecord()).then(function(){
+      song.saved=true; refreshSongUI(); refreshSongList();
+      songMsg('Saved \u201c'+song.name+'\u201d.');
+    }).catch(function(e){ console.warn(e); songMsg('Couldn\u2019t save that song.', 'err'); });
+  }
+  var persistT=null;
+  function autoPersistSong(){            // read-modify-write just the settings, debounced
+    if(!songLoaded() || !idbAvailable() || !song.name) return;
+    clearTimeout(persistT);
+    persistT=setTimeout(function(){
+      idbGet(song.name).then(function(rec){
+        if(!rec) return;
+        rec.bpm=song.bpm; rec.beatSec=song.beatSec; rec.barBeats=song.barBeats;
+        rec.barLen=song.barLen; rec.vol=song.vol; rec.timeSig=state.timeSig; rec.savedAt=Date.now();
+        return idbPut(rec).then(function(){ song.saved=true; refreshSongUI(); });
+      }).catch(function(){});
+    }, 500);
+  }
+  function refreshSongList(){
+    var sel=document.getElementById('songSel'); if(!sel) return;
+    if(!idbAvailable()){
+      sel.innerHTML='<option value="">Needs https</option>'; sel.disabled=true;
+      var sb=document.getElementById('songSave'), db=document.getElementById('songDel');
+      if(sb) sb.title='Saving songs needs the hosted https version';
+      if(db) db.disabled=true;
+      return;
+    }
+    idbAll().then(function(list){
+      sel.innerHTML='<option value="">Load\u2026</option>';
+      list.sort(function(a,b){ return (b.savedAt||0)-(a.savedAt||0); }).forEach(function(r){
+        var o=document.createElement('option'); o.value=r.name; o.textContent=r.name;
+        sel.appendChild(o);
+      });
+    }).catch(function(){});
+  }
+  function loadSavedSong(name){
+    if(!name || !idbAvailable()) return;
+    songMsg('Loading \u201c'+name+'\u201d\u2026', 'busy');
+    idbGet(name).then(function(rec){
+      if(!rec){ songMsg('That song isn\u2019t stored any more.', 'err'); refreshSongList(); return; }
+      ensureAudio();
+      song.file=rec.blob||null; song.name=rec.name; song.saved=true;
+      song.bpm=rec.bpm; song.beatSec=rec.beatSec; song.barBeats=rec.barBeats;
+      song.barLen=rec.barLen||barLenForMeter(); song.vol=(rec.vol!=null?rec.vol:0.9);
+      song.timeSig=rec.timeSig||state.timeSig;
+      var fr=new FileReader();
+      fr.onload=function(){
+        audioCtx.decodeAudioData(fr.result.slice(0), function(buf){
+          song.buffer=buf;
+          // rebuild the envelope so meter changes can re-derive the downbeat later (bug #6)
+          buildOnsetEnvelope(buf).then(function(r){ song.envLow=r.envLow; song.fps=r.fps; }).catch(function(){});
+          song.barLen=barLenForMeter(); normBarBeats();
+          applySongLock(true); setBpm(song.bpm); refreshSongUI();
+          songMsg('Loaded \u201c'+song.name+'\u201d \u2014 already aligned at '+Math.round(song.bpm)+' bpm.');
+        }, function(){ songMsg('Couldn\u2019t decode the stored audio.', 'err'); });
+      };
+      fr.onerror=function(){ songMsg('Couldn\u2019t read the stored audio.', 'err'); };
+      fr.readAsArrayBuffer(rec.blob);
+    }).catch(function(e){ console.warn(e); songMsg('Couldn\u2019t load that song.', 'err'); });
+  }
+
+  // ---- wiring -----------------------------------------------------------
+  document.getElementById('songFile').addEventListener('change', function(){
+    if(this.files && this.files[0]) loadSongFromFile(this.files[0]);
+    this.value='';
+  });
+  document.getElementById('songRemove').addEventListener('click', removeSong);
+  document.getElementById('songDiv').addEventListener('click', function(){ songOctave(-1); });
+  document.getElementById('songMul').addEventListener('click', function(){ songOctave(1); });
+  document.getElementById('songBeat1').addEventListener('click', tapBeatOne);
+  document.getElementById('songBack').addEventListener('click', function(){ shiftDownbeat(-1); });
+  document.getElementById('songFwd').addEventListener('click', function(){ shiftDownbeat(1); });
+  document.getElementById('songMinus').addEventListener('click', function(){ nudgePhase(-20); });
+  document.getElementById('songPlus').addEventListener('click', function(){ nudgePhase(20); });
+  document.getElementById('songVol').addEventListener('input', function(){
+    song.vol=(+this.value)/100;
+    if(song.gain) song.gain.gain.value=song.vol;
+    autoPersistSong();
+  });
+  document.getElementById('songSave').addEventListener('click', saveSong);
+  document.getElementById('songSel').addEventListener('change', function(){ if(this.value) loadSavedSong(this.value); });
+  document.getElementById('songDel').addEventListener('click', function(){
+    var sel=document.getElementById('songSel'), n=sel.value;
+    if(!n) return;
+    if(!confirm('Delete saved song \u201c'+n+'\u201d?')) return;
+    idbDel(n).then(function(){ refreshSongList(); songMsg('Deleted \u201c'+n+'\u201d.'); }).catch(function(){});
+  });
+
+  function start(){
+    ensureAudio();
+    resyncArmed=false; pendingBpm=null;
+    if(songLoaded()){ startWithSong(); return; }   // song owns the clock
+    state.running=true; cardsDealt=0;
+    STEP=0; vq=[];
+    computeCycleLens();                 // prep(4 beats)+count(+clap); cycle length known before scheduling
+    var recentTap = tapTimes.length>=2 && (performance.now() - tapTimes[tapTimes.length-1] < 3000) && lastTapAudio!=null;
+    if(recentTap){
+      var beatDur = 60/state.bpm;       // felt beat
+      nextStepTime = lastTapAudio + Math.ceil((audioCtx.currentTime + 0.1 - lastTapAudio)/beatDur)*beatDur;
+    } else {
+      nextStepTime = audioCtx.currentTime + 0.15;
+    }
+    clearSweep();
+    go.textContent='\u25a0 Stop'; go.classList.add('running');
+    scheduler(); rafDraw();
+  }
+  function stop(){
+    state.running=false; resyncArmed=false; pendingBpm=null;
+    stopSongPlayback();
+    if(schedId) clearTimeout(schedId);
+    if(rafId) cancelAnimationFrame(rafId);
+    vq=[];
+    clearSweep();
+    setPhase('', 'Ready', '\u2014'); setDots(0);
+    go.textContent='\u25b6 Play'; go.classList.remove('running');
+  }
+
+  // ================= presentation (fullscreen) =================
+  var presTimer=null;
+  function refitPresent(){ renderCard(cardMeasures.length?cardMeasures:[]); }
+  function requestFS(el){
+    var fn=el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||el.msRequestFullscreen;
+    if(fn){ try{ fn.call(el); }catch(e){} }
+  }
+  function exitFS(){
+    if(document.fullscreenElement||document.webkitFullscreenElement){
+      var fn=document.exitFullscreen||document.webkitExitFullscreen||document.msExitFullscreen;
+      if(fn){ try{ fn.call(document); }catch(e){} }
+    }
+  }
+  function enterPresent(){
+    document.body.classList.add('present');
+    requestFS(document.documentElement);   // real fullscreen where supported; class-based works regardless (e.g. iOS)
+    requestAnimationFrame(function(){ requestAnimationFrame(refitPresent); });
+    setTimeout(refitPresent, 250);
+  }
+  function exitPresent(){
+    var was=document.body.classList.contains('present');
+    document.body.classList.remove('present');
+    if(was) setTimeout(function(){ renderCard(cardMeasures.length?cardMeasures:[]); }, 60);
+    exitFS();
+  }
+  var resizeT=null;
+  function onViewportChange(){
+    clearTimeout(resizeT);
+    resizeT=setTimeout(function(){ if(cardMeasures.length) renderCard(cardMeasures); }, 160);
+  }
+  window.addEventListener('resize', onViewportChange);
+  window.addEventListener('orientationchange', function(){ setTimeout(onViewportChange, 250); });
+  document.getElementById('presentBtn').addEventListener('click', enterPresent);
+  document.getElementById('exitPresentBtn').addEventListener('click', exitPresent);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') exitPresent(); });
+  document.addEventListener('fullscreenchange', function(){ if(!document.fullscreenElement && document.body.classList.contains('present')) exitPresent(); });
+  document.addEventListener('webkitfullscreenchange', function(){ if(!document.webkitFullscreenElement && document.body.classList.contains('present')) exitPresent(); });
+
+  // ================= rhythm-value picker (#rhythmCheckboxes) =================
+  var RPICK_GROUPS = [
+    ['Notes',   ['whole','half','dottedHalf','quarter','dottedQtr','eighth','dotted8th','sixteenth']],
+    ['Rests',   ['wholeRest','halfRest','dottedHalfRest','qrtrRest','dottedQrtrRest','8thRest','dotted8thRest','16thRest']],
+    ['Triplets',['eighthNoteTriplet','sixteenthTriplet','quarterTriplet']]
+  ];
+  var rpickLabels={};  // key -> {label, newtag}
+  function setKeysChecked(keys, on){
+    keys.forEach(function(k){ var el=document.getElementById('rhythm-'+k); if(el) el.checked=on; });
+    state.customRhythms=true;
+    if(!state.running) dealPreviewCard();
+  }
+  function buildRhythmPicker(){
+    var rpick=document.getElementById('rpick');
+    rpick.innerHTML='';
+    var master=document.createElement('div'); master.className='pickmaster';
+    var lbl=document.createElement('span'); lbl.textContent='These follow the selected Difficulty Levels automatically. Tweak individual values here:'; master.appendChild(lbl);
+    var allKeys=[]; RPICK_GROUPS.forEach(function(g){ g[1].forEach(function(k){ if(RHYTHM_DEFS[k]) allKeys.push(k); }); });
+    var allBtn=document.createElement('button'); allBtn.className='minibtn'; allBtn.textContent='All';
+    allBtn.addEventListener('click', function(){ setKeysChecked(allKeys, true); });
+    var noneBtn=document.createElement('button'); noneBtn.className='minibtn'; noneBtn.textContent='None';
+    noneBtn.addEventListener('click', function(){ setKeysChecked(allKeys, false); });
+    var recBtn=document.createElement('button'); recBtn.className='minibtn'; recBtn.textContent='Reset to Levels';
+    recBtn.addEventListener('click', function(){ state.customRhythms=false; applyLevelUnion(); if(!state.running) dealPreviewCard(); });
+    master.appendChild(allBtn); master.appendChild(noneBtn); master.appendChild(recBtn);
+    rpick.appendChild(master);
+    var host=document.createElement('div'); host.id='rhythmCheckboxes'; host.style.display='contents';
+    RPICK_GROUPS.forEach(function(grp){
+      var groupKeys=grp[1].filter(function(k){ return !!RHYTHM_DEFS[k]; });
+      var col=document.createElement('div'); col.className='sec';
+      var head=document.createElement('div'); head.className='sechead';
+      var h=document.createElement('h4'); h.textContent=grp[0]; head.appendChild(h);
+      var ga=document.createElement('button'); ga.className='catbtn'; ga.textContent='all';
+      ga.addEventListener('click', function(){ setKeysChecked(groupKeys, true); });
+      var gn=document.createElement('button'); gn.className='catbtn'; gn.textContent='none';
+      gn.addEventListener('click', function(){ setKeysChecked(groupKeys, false); });
+      head.appendChild(ga); head.appendChild(gn);
+      col.appendChild(head);
+      grp[1].forEach(function(key){
+        if(!RHYTHM_DEFS[key]) return;
+        var lab=document.createElement('label'); lab.setAttribute('data-key',key);
+        var cb=document.createElement('input'); cb.type='checkbox'; cb.id='rhythm-'+key;
+        cb.addEventListener('change', function(){ state.customRhythms=true; if(!state.running) dealPreviewCard(); });
+        var span=document.createElement('span'); span.textContent=RHYTHM_DEFS[key].label;
+        var tag=document.createElement('span'); tag.className='newtag'; tag.textContent='new'; tag.style.display='none';
+        lab.appendChild(cb); lab.appendChild(span); lab.appendChild(tag);
+        col.appendChild(lab);
+        rpickLabels[key]={lab:lab, tag:tag};
+      });
+      host.appendChild(col);
+    });
+    rpick.appendChild(host);
+  }
+  function refreshRhythmTags(){
+    var rec={}, neu={};
+    state.levels.forEach(function(L){
+      getDefaultRhythmsForLevel(L, state.timeSig).forEach(function(k){ rec[k]=1; });
+      getRhythmsNewAtLevel(L, state.timeSig).forEach(function(k){ neu[k]=1; });
+    });
+    Object.keys(rpickLabels).forEach(function(key){
+      var o=rpickLabels[key];
+      o.lab.classList.toggle('rec', !!rec[key]);
+      o.tag.style.display = neu[key] ? '' : 'none';
+    });
+  }
+
+  // ================= control wiring =================
+  function syncSeg(id, attr, val){
+    var seg=document.getElementById(id); if(!seg) return;
+    [].slice.call(seg.children).forEach(function(x){ x.classList.toggle('sel', x.getAttribute(attr)===String(val)); });
+  }
+  function syncMultiSeg(id, attr, arr){
+    var seg=document.getElementById(id); if(!seg) return;
+    [].slice.call(seg.children).forEach(function(x){ x.classList.toggle('sel', arr.indexOf(x.getAttribute(attr))>=0); });
+  }
+  function segPick(segId, attr, apply){
+    document.getElementById(segId).addEventListener('click', function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      [].slice.call(this.children).forEach(function(x){ x.classList.toggle('sel', x===b); });
+      apply(b.getAttribute(attr));
+    });
+  }
+  // multi-toggle: click adds/removes; always keep at least one selected
+  function segMultiPick(segId, attr, apply){
+    document.getElementById(segId).addEventListener('click', function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      var sel=[].slice.call(this.children).filter(function(x){ return x.classList.contains('sel'); });
+      if(b.classList.contains('sel')){ if(sel.length<=1) return; b.classList.remove('sel'); }
+      else b.classList.add('sel');
+      var vals=[].slice.call(this.children).filter(function(x){ return x.classList.contains('sel'); }).map(function(x){ return x.getAttribute(attr); });
+      apply(vals);
+    });
+  }
+  // combineFn() decides single (classic) vs multi (grab-bag) for this control
+  function segChoose(segId, attr, combineFn, apply){
+    document.getElementById(segId).addEventListener('click', function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      var kids=[].slice.call(this.children);
+      if(combineFn()){
+        var sel=kids.filter(function(x){ return x.classList.contains('sel'); });
+        if(b.classList.contains('sel')){ if(sel.length<=1) return; b.classList.remove('sel'); }
+        else b.classList.add('sel');
+      } else {
+        kids.forEach(function(x){ x.classList.toggle('sel', x===b); });
+      }
+      var vals=kids.filter(function(x){ return x.classList.contains('sel'); }).map(function(x){ return x.getAttribute(attr); });
+      apply(vals);
+    });
+  }
+  function selectLevels(vals){
+    state.levels = vals.map(function(v){ return parseInt(v,10)||1; }).sort(function(a,b){return a-b;});
+    state.customRhythms=false;                 // changing the level snaps the pool back to level defaults
+    applyLevelUnion();
+    updateLevelHint(); refreshRhythmTags();
+    if(state.running) stop();
+    dealPreviewCard();
+  }
+  function selectDiffs(vals){
+    state.difficulties = vals.slice();
+    updateLevelHint();
+    if(state.running) stop();
+    dealPreviewCard();
+  }
+  function buildGroupingPicker(){
+    var grp=document.getElementById('groupingGrp'), seg=document.getElementById('groupingSeg');
+    if(!isOdd(state.timeSig)){ grp.style.display='none'; seg.innerHTML=''; return; }
+    var o=ODD[state.timeSig], cur=(state.oddGrouping&&state.oddGrouping[state.timeSig])||o.def;
+    seg.innerHTML='';
+    Object.keys(o.groupings).forEach(function(name){
+      var b=document.createElement('button'); b.textContent=name; b.setAttribute('data-g',name);
+      if(name===cur) b.classList.add('sel');
+      seg.appendChild(b);
+    });
+    grp.style.display='';
+  }
+  document.getElementById('groupingSeg').addEventListener('click', function(e){
+    var b=e.target.closest('button'); if(!b || !isOdd(state.timeSig)) return;
+    [].slice.call(this.children).forEach(function(x){ x.classList.toggle('sel', x===b); });
+    state.oddGrouping[state.timeSig]=b.getAttribute('data-g');
+    _grooveCache={};                    // grouping changed → rebuild grooves
+    if(state.running) stop();
+    dealPreviewCard();
+  });
+  segPick('tsSeg','data-ts', function(v){
+    state.timeSig=v; document.getElementById('tsName').textContent = (v==='2/2'?'Cut':v);
+    syncEngineDom(); setupDots();
+    state.customRhythms=false;                 // new meter → back to the level's recommended pool
+    applyLevelUnion();
+    updateLevelHint(); refreshRhythmTags();
+    buildGroupingPicker();
+    onMeterChangedForSong();
+    if(state.running) stop();
+    dealPreviewCard();
+  });
+  segChoose('levelSeg','data-lv', function(){ return state.combineLevels; }, selectLevels);
+  segChoose('diffSeg','data-df', function(){ return state.combineDiffs; }, selectDiffs);
+  function wireCombine(btnId, flag, segId, attr, arrName, fallback){
+    document.getElementById(btnId).addEventListener('click', function(){
+      state[flag]=!state[flag];
+      this.classList.toggle('on', state[flag]);
+      this.setAttribute('aria-pressed', state[flag]?'true':'false');
+      if(!state[flag]){
+        state[arrName]=[state[arrName][0]!=null?state[arrName][0]:fallback];
+        syncMultiSeg(segId, attr, state[arrName].map(String));
+      }
+      if(arrName==='levels'){ state.customRhythms=false; applyLevelUnion(); }
+      refreshRhythmTags();
+      updateLevelHint();
+      if(state.running) stop();
+      dealPreviewCard();
+    });
+  }
+  wireCombine('levelCombine','combineLevels','levelSeg','data-lv','levels',1);
+  wireCombine('diffCombine','combineDiffs','diffSeg','data-df','difficulties','medium');
+  segPick('measuresSeg','data-m', function(v){ state.measures=parseInt(v,10)||1; if(state.running) stop(); dealPreviewCard(); });
+  segPick('sylSeg','data-sy', function(v){ state.syllables=v; applyStaticSyllables(); if(!state.running) clearSweep(); });
+  segPick('soundSeg','data-s', function(v){ state.sound=v; });
+  segPick('stepsSeg','data-x', function(v){ state.steps=v; });
+  segPick('advanceSeg','data-adv', function(v){ state.autoAdvance = (v==='auto'); });
+  segPick('prepSeg','data-p', function(v){ state.prepBeatsTarget=parseInt(v,10)||4; if(state.running){ computeCycleLens(); } });
+
+  document.getElementById('hearItToggle').addEventListener('change', function(){ state.hearIt=this.checked; if(this.checked) ensureAudio(); });
+  document.getElementById('speedToggle').addEventListener('change', function(){ state.speedTrainer=this.checked; });
+  document.getElementById('tiesToggle').addEventListener('change', function(){ state.ties=this.checked; syncEngineDom(); if(!state.running) dealPreviewCard(); });
+
+  // Cards: Prev / Next / Reveal
+  document.getElementById('nextBtn').addEventListener('click', function(){ nextCard(); });
+  document.getElementById('prevBtn').addEventListener('click', function(){ prevCard(); });
+  document.getElementById('revealBtn').addEventListener('click', toggleReveal);
+  // tap the card to reveal the counting
+  document.getElementById('card').addEventListener('click', function(e){
+    if(document.getElementById('cardStaff').contains(e.target) || document.getElementById('cardStrip').contains(e.target) || e.target.id==='card' || e.target.id==='cardScale') toggleReveal();
+  });
+  // keyboard: →/N next, ←/P prev, R reveal, F fullscreen
+  document.addEventListener('keydown', function(e){
+    var tag=(e.target&&e.target.tagName)||'';
+    if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+    if(e.key==='ArrowRight' || e.key==='n' || e.key==='N'){ e.preventDefault(); nextCard(); }
+    else if(e.key==='ArrowLeft' || e.key==='p' || e.key==='P'){ e.preventDefault(); prevCard(); }
+    else if(e.key==='r' || e.key==='R'){ e.preventDefault(); toggleReveal(); }
+    else if(e.key==='f' || e.key==='F'){ e.preventDefault(); if(document.body.classList.contains('present')) exitPresent(); else enterPresent(); }
+  });
+
+  document.getElementById('advBtn').addEventListener('click', function(){
+    var a=document.getElementById('advanced'); a.hidden=!a.hidden;
+    this.innerHTML='Advanced Options '+(a.hidden?'\u25be':'\u25b4');
+  });
+  document.getElementById('rpickBtn').addEventListener('click', function(){
+    var p=document.getElementById('rpick'); p.classList.toggle('show');
+    var open=p.classList.contains('show');
+    this.classList.toggle('on', open);
+    this.innerHTML='\u266a Rhythm Customization '+(open?'\u25b4':'\u25be');
+  });
+
+  // ================= save / load setups (localStorage) =================
+  var STORE_KEY='rhythmBoardSetups';
+  function loadStore(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)||'{}'); }catch(e){ return {}; } }
+  function saveStore(o){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(o)); }catch(e){} }
+  var SETUP_KEYS=['timeSig','levels','difficulties','combineLevels','combineDiffs','customRhythms','measures','sound','bpm','steps','syllables','hearIt','speedTrainer','ties','autoAdvance','prepBeatsTarget','oddGrouping','focus'];
+  function enabledKeys(){
+    return Object.keys(RHYTHM_DEFS).filter(function(k){ var el=document.getElementById('rhythm-'+k); return el && el.checked; });
+  }
+  function currentSetup(){
+    var s={}; SETUP_KEYS.forEach(function(k){ s[k]=state[k]; });
+    s.rhythms=enabledKeys();
+    return s;
+  }
+  function applySetup(s){
+    if(state.running) stop();
+    SETUP_KEYS.forEach(function(k){ if(s[k]!==undefined) state[k]=s[k]; });
+    // migrate old single-value setups
+    if(!Array.isArray(state.levels)) state.levels=[parseInt(s.level,10)||1];
+    if(!Array.isArray(state.difficulties)) state.difficulties=[s.difficulty||'medium'];
+    syncEngineDom();
+    setupDots();
+    syncSeg('tsSeg','data-ts',state.timeSig); document.getElementById('tsName').textContent=(state.timeSig==='2/2'?'Cut':state.timeSig);
+    syncMultiSeg('levelSeg','data-lv',state.levels.map(String));
+    syncMultiSeg('diffSeg','data-df',state.difficulties);
+    syncSeg('measuresSeg','data-m',state.measures);
+    syncSeg('sylSeg','data-sy',state.syllables);
+    syncSeg('soundSeg','data-s',state.sound);
+    syncSeg('stepsSeg','data-x',state.steps);
+    setBpm(state.bpm);
+    document.getElementById('hearItToggle').checked=state.hearIt;
+    document.getElementById('speedToggle').checked=state.speedTrainer;
+    document.getElementById('tiesToggle').checked=state.ties;
+    var lc=document.getElementById('levelCombine');
+    if(lc){ lc.classList.toggle('on', !!state.combineLevels); lc.setAttribute('aria-pressed', state.combineLevels?'true':'false'); }
+    var dc=document.getElementById('diffCombine');
+    if(dc){ dc.classList.toggle('on', !!state.combineDiffs); dc.setAttribute('aria-pressed', state.combineDiffs?'true':'false'); }
+    if(!state.focus) state.focus={sync:false,dotted:false,rests:false,triplet:false};
+    syncSeg('advanceSeg','data-adv', state.autoAdvance===false?'hold':'auto');
+    syncSeg('prepSeg','data-p', String(state.prepBeatsTarget||4));
+    if(!state.oddGrouping) state.oddGrouping={'5/8':'2+3','7/8':'2+2+3'};
+    buildGroupingPicker();
+    // rhythm checkboxes: union of selected levels, then honor a saved custom set
+    applyLevelUnion();
+    if(state.customRhythms && s.rhythms){
+      Object.keys(RHYTHM_DEFS).forEach(function(k){ var el=document.getElementById('rhythm-'+k); if(el) el.checked=false; });
+      s.rhythms.forEach(function(k){ var el=document.getElementById('rhythm-'+k); if(el) el.checked=true; });
+    }
+    updateLevelHint(); refreshRhythmTags();
+    dealPreviewCard();
+  }
+  function refreshLoadList(sel){
+    var store=loadStore(), loadSel=document.getElementById('loadSel');
+    loadSel.innerHTML='<option value="">Load\u2026</option>';
+    Object.keys(store).sort().forEach(function(name){
+      var o=document.createElement('option'); o.value=name; o.textContent=name; loadSel.appendChild(o);
+    });
+    if(sel) loadSel.value=sel;
+  }
+  document.getElementById('saveBtn').addEventListener('click', function(){
+    var name=prompt('Name this setup:'); if(!name) return;
+    var store=loadStore(); store[name]=currentSetup(); saveStore(store); refreshLoadList(name);
+  });
+  document.getElementById('loadSel').addEventListener('change', function(){
+    var name=this.value; if(!name) return;
+    var store=loadStore(); if(store[name]) applySetup(store[name]);
+  });
+  document.getElementById('delBtn').addEventListener('click', function(){
+    var loadSel=document.getElementById('loadSel'), name=loadSel.value; if(!name) return;
+    if(!confirm('Delete setup "'+name+'"?')) return;
+    var store=loadStore(); delete store[name]; saveStore(store); refreshLoadList('');
+  });
+  // Shareable link: encode the current setup in the URL hash
+  document.getElementById('shareBtn').addEventListener('click', function(){
+    var btn=this;
+    try{
+      var code=btoa(unescape(encodeURIComponent(JSON.stringify(currentSetup()))));
+      var url=location.origin+location.pathname+'#s='+code;
+      var done=function(){ var t=btn.textContent; btn.textContent='Copied!'; setTimeout(function(){ btn.textContent=t; }, 1200); };
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done, function(){ prompt('Copy this link:', url); }); }
+      else { prompt('Copy this link:', url); }
+    }catch(e){ console.warn('share failed', e); }
+  });
+  function loadSetupFromHash(){
+    try{
+      var h=location.hash||'';
+      if(h.indexOf('#s=')!==0) return false;
+      var json=decodeURIComponent(escape(atob(h.slice(3))));
+      var setup=JSON.parse(json);
+      if(setup && typeof setup==='object'){ applySetup(setup); return true; }
+    }catch(e){ console.warn('bad share link', e); }
+    return false;
+  }
+
+  // ================= help / tour =================
+  var helpModal=document.getElementById('helpModal');
+  function openHelp(){ helpModal.hidden=false; }
+  function closeHelp(){ helpModal.hidden=true; }
+  document.getElementById('tourBtn').addEventListener('click', openHelp);
+  document.getElementById('helpClose').addEventListener('click', closeHelp);
+  document.getElementById('helpGo').addEventListener('click', closeHelp);
+  helpModal.addEventListener('click', function(e){ if(e.target===helpModal) closeHelp(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeHelp(); });
+
+  // ================= init =================
+  buildRhythmPicker();
+  setupDots();
+  syncEngineDom();
+  applyLevelUnion();                 // seed the grab-bag pool from selected levels
+  updateLevelHint(); refreshRhythmTags();
+  syncMultiSeg('levelSeg','data-lv',state.levels.map(String));
+  syncMultiSeg('diffSeg','data-df',state.difficulties);
+  buildGroupingPicker();
+  refreshLoadList('');
+  refreshSongList(); refreshSongUI();
+  setPhase('', 'Ready', '\u2014');
+  var fromLink=loadSetupFromHash();   // a shared link overrides the defaults
+  // seed a preview card once fonts/layout settle
+  if(!fromLink) setTimeout(function(){ dealPreviewCard(); }, 350);
+  try { if(!localStorage.getItem('rhythmBoardSeen')){ openHelp(); localStorage.setItem('rhythmBoardSeen','1'); } } catch(e){}
+})();
+</script>
+</body>
+</html>

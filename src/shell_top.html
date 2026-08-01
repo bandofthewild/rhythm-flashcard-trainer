@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rhythm Flashcard Trainer — rhythm reading for individuals &amp; ensembles</title>
+<script src="https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/cjs/vexflow.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@600;700&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#a5c8d4; --panel:#e4edf1; --panel2:#d3e2e9;
+    --paper:#eef4f7; --light:#05495d; --muted:#4e7885; --line:#aecad6;
+    --brass:#035772; --brass2:#02465b;
+    --c0:#c0504d; --c1:#d67b3e; --c2:#cba52e; --c3:#5a9367; --c4:#3f7cae; --c5:#7a5aa8;
+    --head:'Roboto Slab', Georgia, 'Times New Roman', serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ink); color:var(--light);
+    font-family:'Nunito Sans', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1280px; margin:0 auto; padding:22px 22px 60px}
+  header.top{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:4px}
+  header.top h1{
+    font-size:28px; margin:0; font-weight:700; letter-spacing:-.01em; font-family:var(--head); color:var(--brass);
+  }
+  header.top .tag{color:var(--brass); font-weight:600; letter-spacing:.14em; text-transform:uppercase; font-size:11px}
+  .sub{color:var(--muted); font-size:13px; margin:2px 0 18px}
+
+  /* controls */
+  .controls{display:flex; gap:9px 12px; flex-wrap:wrap; align-items:flex-start; justify-content:flex-start; margin-bottom:14px}
+  .controls .grp{flex:0 0 auto}
+  .levelgrp{width:404px; max-width:100%}
+  .levelgrp .seg{width:100%}
+  .levelgrp .seg button{flex:1 1 0}
+  .levelgrp .lvlhint{width:100%; max-width:none}
+  .combinetgl{margin-left:8px; vertical-align:middle; background:var(--panel2); color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:1px 10px 1px 8px; font-size:10px; font-weight:700; letter-spacing:.02em; text-transform:none; cursor:pointer; line-height:1.4}
+  .combinetgl::before{content:'\2795'; font-size:8px; margin-right:4px; opacity:.7}
+  .combinetgl:hover{border-color:var(--brass); color:var(--brass)}
+  .combinetgl.on{background:var(--brass); color:#fff; border-color:var(--brass)}
+  .combinetgl.on::before{content:'\2713'; opacity:1}
+  .custgrp{justify-content:flex-start}
+  .custbtn{background:var(--panel2); color:var(--brass); border:1px solid var(--brass); border-radius:10px; padding:0 11px; min-height:50px; font-size:12.5px; font-weight:700; cursor:pointer; letter-spacing:0; white-space:nowrap}
+  .custbtn:hover{background:var(--brass); color:#fff}
+  .custbtn.on{background:var(--brass); color:#fff}
+  .playbar{display:flex; gap:26px; flex-wrap:wrap; align-items:flex-end; margin:6px 0 14px}
+  .grp{display:flex; flex-direction:column; gap:6px}
+  .grp .lab{font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); min-height:22px; display:flex; align-items:center; white-space:nowrap}
+  .grp .lab .multi{display:inline; text-transform:none; letter-spacing:0; font-style:normal; font-size:10.5px; color:var(--brass); background:color-mix(in srgb, var(--brass) 12%, transparent); border-radius:6px; padding:1px 7px; margin-left:6px; font-weight:600}
+  .lvlhint{font-size:12px; color:var(--muted); margin-top:8px; max-width:560px; line-height:1.5}
+  .lvlhint b{color:var(--brass)}
+  .seg{display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; flex-wrap:wrap}
+  .seg button{background:var(--panel2); color:var(--light); border:0; padding:6px 9px; font-size:12.5px; cursor:pointer; min-height:50px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button:first-child{border-top-left-radius:9px; border-bottom-left-radius:9px}
+  .seg button:last-child{border-top-right-radius:9px; border-bottom-right-radius:9px}
+  .seg button.sel{background:var(--brass); color:#fff; font-weight:600}
+  .seg.twoline button{display:flex; flex-direction:column; align-items:center; gap:2px; line-height:1.05; padding:6px 8px}
+  .seg.twoline button small{font-size:9.5px; font-weight:400; opacity:.72; letter-spacing:.01em; white-space:nowrap}
+  .seg button:disabled{opacity:.4; cursor:default}
+  .pitchsel{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:7px; padding:4px 7px; font-size:13px}
+  .go{background:var(--brass); color:#fff; border:0; border-radius:10px; padding:12px 26px; font-size:15px; font-weight:600; cursor:pointer}
+  .go.running{background:#b1483f; color:#fff}
+  input[type=range]{width:150px; accent-color:var(--brass)}
+  .tapbtn{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:8px; padding:7px 15px; font-size:13px; font-weight:600; cursor:pointer}
+  .tapbtn:hover{border-color:var(--brass)}
+  .tapbtn.tapping{background:var(--brass); color:#fff; border-color:var(--brass)}
+  .tempoval{font-variant-numeric:tabular-nums; color:var(--light); font-size:13px}
+  .tempoval input{width:52px; font-variant-numeric:tabular-nums; color:var(--brass); font-size:14px; font-weight:700; text-align:right; border:1px solid var(--line); border-radius:6px; padding:4px 6px; background:var(--panel2)}
+  .tempoval input:focus{outline:none; border-color:var(--brass); box-shadow:0 0 0 2px color-mix(in srgb, var(--brass) 20%, transparent)}
+
+  .utilbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px}
+  .utilbar .utilsp{flex:1}
+  .utilbar .utillab{font-size:12px; color:var(--muted)}
+  .minibtn{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:7px; padding:4px 11px; font-size:12px; cursor:pointer}
+  .minibtn:hover{border-color:var(--brass); color:var(--brass)}
+
+  .advanced{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:16px; display:flex; gap:14px 24px; flex-wrap:wrap; align-items:flex-start}
+  .advanced[hidden]{display:none}
+  .advanced .sec{display:flex; flex-direction:column; gap:5px; max-width:310px; flex:1 1 230px}
+  .advanced .sechead h4{margin:0 0 3px; font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--brass); font-weight:600}
+  .advanced label{display:flex; align-items:center; gap:9px; font-size:13.5px; color:var(--light); cursor:pointer; margin-top:2px}
+  .advanced label input{accent-color:var(--brass); width:15px; height:15px}
+  .advanced .advdesc{margin:0 0 2px 24px; font-size:11.5px; color:var(--muted); line-height:1.45}
+  .advanced .advdesc b{color:var(--light); font-weight:600}
+  .advanced .seg{display:flex; width:100%}
+  .advanced .seg button{flex:1 1 0; text-align:center}
+
+  /* rhythm checkbox picker */
+  .rpick{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:16px; display:none; gap:26px; flex-wrap:wrap}
+  .rpick.show{display:flex}
+  .rpick .pickmaster{flex-basis:100%; display:flex; align-items:center; gap:10px; padding-bottom:10px; border-bottom:1px solid var(--line); flex-wrap:wrap}
+  .rpick .pickmaster span{font-size:12px; color:var(--muted)}
+  .rpick .sec{display:flex; flex-direction:column; gap:8px; min-width:180px}
+  .rpick .sechead{display:flex; align-items:center; gap:6px}
+  .rpick .sechead h4{margin:0 4px 0 0; font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--brass); font-weight:600}
+  .catbtn{background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:5px; padding:0 6px; font-size:10px; cursor:pointer; line-height:1.6}
+  .catbtn:hover{border-color:var(--brass); color:var(--brass)}
+  .rpick label{display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; color:var(--light)}
+  .rpick label input{accent-color:var(--brass); width:15px; height:15px}
+  .rpick label.rec{color:var(--brass); font-weight:600}
+  .rpick label .newtag{font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:#fff; background:var(--c3); border-radius:5px; padding:1px 5px; margin-left:2px}
+  .present{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:10px; padding:12px 18px; font-size:14px; font-weight:600; cursor:pointer}
+  .present:hover{border-color:var(--brass); color:var(--brass)}
+
+  .hint{font-size:12px; color:var(--muted); margin:-6px 0 16px}
+  .hint b{color:var(--brass)}
+
+  /* status */
+  .status{display:flex; align-items:center; gap:20px; flex-wrap:wrap; background:var(--panel); border:1px solid var(--line); border-radius:14px 14px 0 0; border-bottom:0; padding:12px 18px; margin-bottom:0}
+  .now{display:flex; align-items:center; gap:12px; min-width:150px}
+  .now .metername{font-size:13px; color:var(--muted)}
+  .now .metername b{display:block; font-size:22px; color:var(--light); font-weight:700; line-height:1.1; font-family:var(--head)}
+  .phasebox{flex:1 1 320px; display:flex; align-items:center; justify-content:center; gap:20px; padding:10px 22px; border-radius:12px; border:1px solid var(--line); background:var(--panel2); transition:background .1s, border-color .1s}
+  .phaselabel{font-size:23px; font-weight:700; letter-spacing:.01em; color:var(--muted)}
+  .phasecount{font-size:40px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; color:var(--light)}
+  .phasebox.prep{background:var(--brass); border-color:var(--brass2); animation:prepPulse 1s ease-in-out infinite}
+  .phasebox.prep .phaselabel{color:#eaf3f6}
+  .phasebox.prep .phasecount{color:#fff}
+  @keyframes prepPulse{0%,100%{box-shadow:0 0 0 0 rgba(3,87,114,.0)} 50%{box-shadow:0 0 0 4px rgba(3,87,114,.22)}}
+  .phasebox.count{background:#38a25a; border-color:#2b854a}
+  .phasebox.count .phaselabel{color:#eafff1}
+  .phasebox.count .phasecount{color:#fff}
+  .phasebox.clap{background:#e58a2b; border-color:#c9761b}
+  .phasebox.clap .phaselabel{color:#fff4e8}
+  .phasebox.clap .phasecount{color:#fff}
+  .phasebox.countin{background:rgba(3,87,114,.05)}
+  .dots{display:flex; gap:8px}
+  .dots .d{width:14px; height:14px; border-radius:50%; background:var(--panel2); border:1px solid var(--line)}
+  .dots .d.on{background:var(--brass); border-color:var(--brass)}
+  .met{margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px}
+  .met .beat{width:12px;height:12px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);transition:none}
+  .met .beat.flash{background:var(--brass); border-color:var(--brass)}
+
+  /* the flash card */
+  .cardwrap{border:1px solid var(--line); border-radius:0 0 14px 14px; background:var(--panel); padding:26px 26px 20px}
+  .card{background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:22px 22px 8px; overflow:hidden}
+  .cardstaff{width:100%}
+  .cardstaff svg{display:block; margin:0 auto; overflow:visible}
+  /* subdivision counting strip */
+  .strip{position:relative; display:flex; margin-top:6px; gap:0; align-items:stretch; user-select:none; min-height:46px; font-size:20px}
+  .strip.aligned{display:block; height:48px}
+  .strip.aligned .scell{position:absolute; top:0; height:100%; padding:0; display:block}
+  .strip.aligned .scell .syl{position:absolute; left:0; top:50%; transform:translate(-50%,-50%); white-space:nowrap; padding:0 3px}
+  .stripmeasure{display:flex; flex:1 1 0; border-left:2px solid var(--line)}
+  .stripmeasure:last-child{border-right:2px solid var(--line)}
+  .scell{flex-grow:1; flex-basis:0; min-width:0; text-align:center; padding:8px 2px 10px; border-radius:8px;
+    font-size:1em; font-weight:700; font-variant-numeric:tabular-nums; color:var(--light);
+    background:transparent; transition:background .04s linear, color .04s linear, transform .04s; position:relative}
+  .scell .syl{opacity:0; transition:opacity .12s; position:relative; z-index:2}
+  .scell.showsyl .syl{opacity:1}
+  .scell.rest{color:var(--muted); font-style:italic}
+  .scell.attack{color:var(--brass)}
+  /* proportional-fallback highlight (fills the cell) */
+  .strip:not(.aligned) .scell.lit{background:color-mix(in srgb, var(--brass) 16%, var(--paper))}
+  .strip:not(.aligned) .scell.hit{background:var(--brass); color:#fff; transform:translateY(-2px)}
+  .strip:not(.aligned) .scell.hit.rest{background:color-mix(in srgb, var(--brass) 34%, var(--paper)); color:var(--light)}
+  /* aligned-mode highlight = a slim cursor pill centered on the notehead */
+  .strip.aligned .scell::after{content:''; position:absolute; left:0; top:6px; bottom:6px; width:1.7em;
+    transform:translateX(-50%); border-radius:7px; background:transparent; z-index:0;
+    transition:background .05s linear, transform .05s}
+  .strip.aligned .scell.lit::after{background:color-mix(in srgb, var(--brass) 18%, var(--paper))}
+  .strip.aligned .scell.hit::after{background:var(--brass); transform:translateX(-50%) translateY(-2px)}
+  .strip.aligned .scell.hit .syl{color:#fff}
+  .strip.aligned .scell.hit.rest::after{background:color-mix(in srgb, var(--brass) 34%, var(--paper))}
+  .strip.aligned .scell.hit.rest .syl{color:var(--light)}
+  .scell .tick{position:absolute; left:0; right:0; bottom:2px; height:3px; border-radius:2px; background:transparent}
+  .scell.beatstart{box-shadow:none}
+  .strip:not(.aligned) .scell.beatstart{box-shadow:inset 2px 0 0 0 color-mix(in srgb, var(--brass) 40%, transparent)}
+  .strip.aligned .beatdiv{position:absolute; top:4px; bottom:4px; width:2px; border-radius:2px; background:color-mix(in srgb, var(--brass) 24%, transparent); z-index:0}
+  .cardmsg{color:var(--muted); font-size:14px; padding:30px 10px; text-align:center}
+
+  /* presentation (fullscreen) mode */
+  body.present .controls, body.present .rpick, body.present .utilbar,
+  body.present .advanced, body.present .hint,
+  body.present header.top, body.present .sub, body.present .note{display:none !important}
+  body.present{overflow:hidden}
+  body.present .wrap{max-width:none; margin:0; padding:16px 12px 8px; height:100vh; display:flex; flex-direction:column; overflow:hidden}
+  body.present .playbar{margin:0 0 6px; flex:0 0 auto}
+  body.present .status{flex:0 0 auto}
+  body.present .cardwrap{padding:6px 14px; flex:1 1 auto; min-height:0; display:flex; overflow:hidden}
+  body.present .card{padding:6px; flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; min-height:0}
+  .cardscale{width:100%; transform-origin:center center}
+  body.present .cardscale{width:auto}
+  body.present .cardstaff{width:100%}
+  body.present .strip{flex:0 0 auto}
+  body.present .cardstaff{flex:0 0 auto}
+  body.present .exitpresent{display:inline-flex !important}
+  body.present #presentBtn{display:none}
+  .exitpresent{display:none}
+
+  .modal{position:fixed; inset:0; background:rgba(8,10,14,.72); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px}
+  .modal[hidden]{display:none}
+  .modalbox{position:relative; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px 30px; max-width:900px; max-height:88vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .modalbox h2{margin:0 0 4px; font-size:24px; font-weight:700; font-family:var(--head); color:var(--brass)}
+  .modalbox .tourcols{display:flex; gap:34px; flex-wrap:wrap; margin:18px 0 8px}
+  .modalbox .tourcols > div{flex:1 1 230px}
+  .modalbox h3{margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.12em; color:var(--brass)}
+  .modalbox ul{margin:0; padding-left:18px; font-size:14px; line-height:1.65; color:var(--light)}
+  .modalbox ul b{color:var(--brass); font-weight:700}
+  .modalbox li{margin-bottom:8px}
+  .modalbox .go{margin-top:14px}
+  .modalx{position:absolute; top:14px; right:16px; background:none; border:0; color:var(--muted); font-size:18px; cursor:pointer}
+  .modalx:hover{color:var(--light)}
+
+  .note{font-size:12px; color:var(--muted); margin-top:20px; line-height:1.6; border-top:1px solid var(--line); padding-top:16px}
+  .note b{color:var(--light)}
+
+  /* hidden engine DOM contract (driven by the visible controls above) */
+  .enginecontract{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+  /* ---- mobile / narrow screens ---- */
+  @media (max-width:680px){
+    .wrap{padding:14px 12px 48px}
+    header.top h1{font-size:22px}
+    .controls, .playbar{gap:14px}
+    .seg button{padding:8px 11px; font-size:12px}
+    .seg.twoline button{padding:6px 9px}
+    .seg.twoline button small{font-size:8.5px}
+    input[type=range]{width:120px}
+    .go{padding:11px 20px; font-size:14px}
+    .status{gap:10px; padding:10px 12px}
+    .phasebox{flex-basis:100%; order:3; padding:8px 14px}
+    .phaselabel{font-size:19px}
+    .phasecount{font-size:30px}
+    .now .metername b{font-size:18px}
+    .cardwrap{padding:16px 12px 12px}
+    .card{padding:14px 12px 6px}
+    .scell{font-size:16px}
+    .grp .lab .multi{display:block; margin-left:0; margin-top:3px; width:max-content}
+    .modalbox{padding:20px 18px}
+    .modalbox .tourcols{gap:18px}
+  }
+  @media (max-width:680px){
+    body.present .playbar{gap:10px}
+  }
+  /* ---- Your Own Music ---- */
+  .songsec{flex:1 1 100% !important; max-width:none !important}
+  .songsec .advdesc{margin-left:0; max-width:820px}
+  .songrow{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin:0}
+  .songlab{flex:none; font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); font-weight:700}
+  .songdiv{flex:none; width:1px; height:20px; background:var(--line); margin:0 5px}
+  .filebtn{flex:none; position:relative; overflow:hidden; display:inline-flex; align-items:center; background:var(--panel2); color:var(--brass); border:1px solid var(--brass); border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:700; cursor:pointer; margin-top:0}
+  .filebtn:hover{background:var(--brass); color:#fff}
+  .filebtn input{position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%}
+  .songstat{font-size:11.5px; color:var(--muted); flex:1 1 200px; min-width:140px}
+  .songstat.busy{color:var(--brass); font-weight:700}
+  .songstat.err{color:#c0504d; font-weight:700}
+  .songbpm{flex:none; font-size:13px; color:var(--light); font-variant-numeric:tabular-nums}
+  .songbpm b{color:var(--brass); font-size:15px}
+  .songbpm em{font-style:normal; font-size:11px; color:var(--muted)}
+  .songb1{border-color:var(--brass); color:var(--brass); font-weight:700}
+  .songb1.tapping{background:var(--brass); color:#fff}
+  /* real slider: never let flex crush it to a dot */
+  #songVol{flex:0 0 auto; width:130px; min-width:130px; accent-color:var(--brass)}
+  .songsec .minibtn{margin-top:0}
+  .songbadge{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:0 12px; min-height:50px; display:flex; align-items:center; font-size:12.5px; font-weight:700; color:var(--brass); max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .locked{opacity:.55}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Rhythm Flashcard Trainer</h1>
+    <span class="tag">Fun, Practical Rhythm Drilling &middot; Individual or Ensemble Sight&#8209;Reading</span>
+  </header>
+  <p class="sub">Project rhythm flash cards for the whole ensemble to read and count together. Choose a meter, difficulty level, and groove; press Play for a count&#8209;off and a metered pulse that sweeps the subdivisions in time. Cards range from a single measure to multi&#8209;bar phrases across simple, compound, cut, and asymmetrical meters &mdash; a new card each turn, or hold one to work it.</p>
+
+  <div class="modal" id="helpModal" hidden>
+    <div class="modalbox">
+      <button class="modalx" id="helpClose" aria-label="Close">&#10005;</button>
+      <h2>Rhythm Flashcard Trainer &mdash; Quick Tour</h2>
+      <div class="tourcols">
+        <div>
+          <h3>Get Going</h3>
+          <ul>
+            <li>Pick a <b>Time Signature</b> and a <b>Difficulty Level</b>, then press <b>Play</b>.</li>
+            <li>You get a <b>Get Ready</b> count&#8209;off, then <b>Count It</b> &mdash; the pulse sweeps the subdivisions while the class counts in "1 e &amp; a."</li>
+            <li>Tap <b>Combine</b> to mix levels/complexities; use <b>Rhythm Customization</b> to pick exact note values.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Run the Drill</h3>
+          <ul>
+            <li><b>Cards: Auto</b> flips each turn; <b>Hold</b> stays put &mdash; use <b>Next &#9654;</b> / <b>&#9664;</b> (or &larr; &rarr;) to advance on your cue.</li>
+            <li>Tap the card or press <b>R</b> to <b>Reveal</b> the counting; press <b>F</b> for <b>Full&#8209;Screen</b>.</li>
+            <li><b>Steps</b> adds a <b>Clap It</b> pass; <b>Advanced Options</b> hold card length, syllable reveal, "Hear It," and count&#8209;off length.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Use Your Own Music</h3>
+          <ul>
+            <li><b>Advanced Options &rarr; Your Own Music &rarr; Load a Song&hellip;</b> finds the track's tempo and downbeat, then plays it through the app so the drill <b>locks to your music</b> &mdash; no tapping, no drift.</li>
+            <li>If the downbeat lands wrong, press <b>Tap Beat 1</b> (or the spacebar) right on beat 1; it comes in one bar later. <b>&divide;</b>/<b>&times;</b> fix a half/double tempo reading.</li>
+            <li>Playing music on another device? Set <b>Groove</b> to <b>Off</b> and <b>tap the beat</b> to match it; tap a 4&#8209;count while running to re&#8209;sync.</li>
+          </ul>
+        </div>
+      </div>
+      <button class="go" id="helpGo">Got It</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="grp">
+      <span class="lab">Time Signature</span>
+      <div class="seg" id="tsSeg">
+        <button data-ts="4/4" class="sel">4/4</button>
+        <button data-ts="3/4">3/4</button>
+        <button data-ts="2/4">2/4</button>
+        <button data-ts="6/8">6/8</button>
+        <button data-ts="9/8">9/8</button>
+        <button data-ts="12/8">12/8</button>
+        <button data-ts="5/8">5/8</button>
+        <button data-ts="7/8">7/8</button>
+        <button data-ts="2/2">Cut</button>
+      </div>
+    </div>
+    <div class="grp levelgrp">
+      <span class="lab">Difficulty Level
+        <button type="button" class="combinetgl" id="levelCombine" aria-pressed="false" title="Combine multiple levels into a grab-bag">Combine</button>
+      </span>
+      <div class="seg twoline" id="levelSeg">
+        <button data-lv="1" class="sel">1<small>Beginning</small></button>
+        <button data-lv="2">2<small>Late Beg.</small></button>
+        <button data-lv="3">3<small>Early Int.</small></button>
+        <button data-lv="4">4<small>Intermediate</small></button>
+        <button data-lv="5">5<small>Late Int.</small></button>
+        <button data-lv="6">6<small>Advanced</small></button>
+      </div>
+      <div class="lvlhint" id="levelHintLine">Pick a level to load its recommended rhythm pool.</div>
+    </div>
+    <div class="grp custgrp">
+      <span class="lab">&nbsp;</span>
+      <button class="custbtn" id="rpickBtn">&#9834; Rhythm Customization &#9662;</button>
+    </div>
+    <div class="grp">
+      <span class="lab">Rhythm Complexity
+        <button type="button" class="combinetgl" id="diffCombine" aria-pressed="false" title="Combine multiple complexities into a grab-bag">Combine</button>
+      </span>
+      <div class="seg" id="diffSeg">
+        <button data-df="easy">Easy</button>
+        <button data-df="medium" class="sel">Medium</button>
+        <button data-df="hard">Hard</button>
+      </div>
+    </div>
+    <div class="grp" id="groupingGrp" style="display:none">
+      <span class="lab">Grouping</span>
+      <div class="seg" id="groupingSeg"></div>
+    </div>
+  </div>
+
+  <div class="utilbar">
+    <button class="minibtn" id="advBtn">Advanced Options &#9662;</button>
+    <button class="minibtn" id="tourBtn">&#9432; Take a Tour</button>
+    <span class="utilsp"></span>
+    <span class="utillab">Setups:</span>
+    <button class="minibtn" id="saveBtn">Save Current</button>
+    <select class="pitchsel" id="loadSel"><option value="">Load…</option></select>
+    <button class="minibtn" id="delBtn">Delete</button>
+    <button class="minibtn" id="shareBtn" title="Copy a link that opens the board with these exact settings">Copy Link</button>
+  </div>
+
+  <div class="advanced" id="advanced" hidden>
+    <div class="sec">
+      <div class="sechead"><h4>Card Length</h4></div>
+      <div class="seg" id="measuresSeg">
+        <button data-m="1" class="sel">1 bar</button>
+        <button data-m="2">2 bars</button>
+        <button data-m="4">4 bars</button>
+      </div>
+      <p class="advdesc">How much rhythm per card. <b>1&#8211;2</b> is the classic flash&#8209;card feel; <b>4</b> makes a longer sight&#8209;reading phrase (full&#8209;screen recommended).</p>
+    </div>
+    <div class="sec">
+      <div class="sechead"><h4>Counting Syllables</h4></div>
+      <div class="seg" id="sylSeg">
+        <button data-sy="off" class="sel">Hidden</button>
+        <button data-sy="last">Reveal last bar</button>
+        <button data-sy="on">Always show</button>
+      </div>
+      <p class="advdesc">Show the "1 e &amp; a" syllables under the notes. <b>Reveal last bar</b> keeps them hidden while students read, then reveals the counting to check &mdash; near the end of the card, or across the whole card during the <b>Clap It</b> pass.</p>
+    </div>
+    <div class="sec">
+      <div class="sechead"><h4>Sound &amp; Challenge</h4></div>
+      <label><input type="checkbox" id="hearItToggle" /> Hear it (soft tone on each note)</label>
+      <p class="advdesc">Plays a soft sustained tone on every notated attack &mdash; held for most of each note's value &mdash; so students hear the target rhythm. Off for silent count&#8209;along.</p>
+      <label><input type="checkbox" id="speedToggle" /> Speed trainer</label>
+      <p class="advdesc">Nudges the tempo up 2 bpm each card (works with the built&#8209;in grooves, not the "Off" mode).</p>
+      <label><input type="checkbox" id="tiesToggle" /> Allow ties</label>
+      <p class="advdesc">Lets notes tie across the barline / within a two&#8209;measure card for syncopation practice.</p>
+    </div>
+    <div class="sec">
+      <div class="sechead"><h4>Get Ready</h4></div>
+      <div class="seg" id="prepSeg">
+        <button data-p="4" class="sel">4 beats</button>
+        <button data-p="8">8 beats</button>
+      </div>
+      <p class="advdesc">How many felt beats of count&#8209;off before each card. Rounded up to whole bars so the groove stays aligned.</p>
+    </div>
+    <div class="sec songsec">
+      <div class="sechead"><h4>Your Own Music</h4></div>
+      <div class="songrow">
+        <label class="filebtn">&#9834; Load a Song&hellip;<input type="file" id="songFile" accept="audio/*" /></label>
+        <button class="minibtn" id="songRemove" disabled>Remove</button>
+        <span class="songstat" id="songStat">No song loaded.</span>
+      </div>
+      <div class="songrow" id="songCtl" hidden>
+        <span class="songlab">Tempo</span>
+        <span class="songbpm"><b id="songBpm">&mdash;</b> bpm <em id="songUnit"></em></span>
+        <button class="minibtn" id="songDiv" title="The detected tempo came out too fast — divide it">&divide;<span id="songF1">2</span></button>
+        <button class="minibtn" id="songMul" title="The detected tempo came out too slow — multiply it">&times;<span id="songF2">2</span></button>
+        <span class="songdiv"></span>
+        <span class="songlab">Downbeat</span>
+        <button class="minibtn songb1" id="songBeat1" title="While the song is playing, press this exactly on beat 1 (the downbeat) of any bar — or hit the spacebar. The Trainer snaps to the nearest beat, marks it as beat 1 of the bar, and restarts the drill one full bar later so you have time to get ready. Your tempo is never changed — this only fixes WHERE the bar starts.">Tap Beat 1</button>
+        <button class="minibtn" id="songBack" title="Move the downbeat one beat earlier">&larr;</button>
+        <button class="minibtn" id="songFwd" title="Move the downbeat one beat later">&rarr;</button>
+        <button class="minibtn" id="songMinus" title="Nudge the whole grid 20 ms earlier">&minus;20ms</button>
+        <button class="minibtn" id="songPlus" title="Nudge the whole grid 20 ms later">+20ms</button>
+      </div>
+      <div class="songrow" id="songCtl2" hidden>
+        <span class="songlab">Volume</span>
+        <input type="range" id="songVol" min="0" max="100" value="90" />
+        <span class="songdiv"></span>
+        <span class="songlab">Saved</span>
+        <select class="pitchsel" id="songSel"><option value="">Load…</option></select>
+        <button class="minibtn" id="songSave">Save Song</button>
+        <button class="minibtn" id="songDel">Delete</button>
+      </div>
+      <p class="advdesc" id="songDesc">Finds the track's <b>tempo</b> and <b>downbeat</b>, then plays it through the app so the drill locks to your music &mdash; no tapping, no drift. Beats per bar follows your <b>Time Signature</b>.</p>
+    </div>
+  </div>
+
+  <div class="rpick" id="rpick"></div>
+
+  <div class="playbar">
+    <div class="grp">
+      <span class="lab">Groove</span>
+      <div class="seg" id="soundSeg">
+        <button data-s="rock" class="sel">Rock</button>
+        <button data-s="funk">Funk</button>
+        <button data-s="latin">Latin</button>
+        <button data-s="marching">March</button>
+        <button data-s="metronome">Click</button>
+        <button data-s="none">Off</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lab" id="tempoLab">Tempo</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="range" id="tempo" min="30" max="300" value="92" />
+        <span class="tempoval"><input type="number" id="bpmInput" min="30" max="300" step="1" value="92" aria-label="Tempo in BPM" /> bpm</span>
+        <button class="tapbtn" id="tapBtn" title="Tap the beat, or press the spacebar">Tap</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lab">Steps</span>
+      <div class="seg" id="stepsSeg">
+        <button data-x="count" class="sel">Count</button>
+        <button data-x="countclap">Count + Clap</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lab">Cards</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="tapbtn" id="prevBtn" title="Previous card (\u2190)">&#9664;</button>
+        <button class="tapbtn" id="nextBtn" title="Next card (\u2192 or N)">Next &#9654;</button>
+        <div class="seg" id="advanceSeg" title="Auto flips each cycle; Hold stays until you press Next">
+          <button data-adv="auto" class="sel">Auto</button>
+          <button data-adv="hold">Hold</button>
+        </div>
+        <button class="tapbtn" id="revealBtn" title="Reveal the counting (R)">Reveal</button>
+      </div>
+    </div>
+    <div class="grp" id="songBadgeGrp" hidden>
+      <span class="lab">Song</span>
+      <div class="songbadge" id="songBadge" title="Loaded song"></div>
+    </div>
+    <div class="grp playbtn">
+      <span class="lab">&nbsp;</span>
+      <div style="display:flex;gap:10px">
+        <button class="go" id="go">&#9654; Play</button>
+        <button class="present" id="presentBtn" title="Fullscreen presentation">&#9974; Full-Screen</button>
+        <button class="present exitpresent" id="exitPresentBtn">&#10005; Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status" id="statusbar">
+    <div class="now">
+      <div class="metername"><b id="tsName">4/4</b>time</div>
+    </div>
+    <div class="phasebox" id="phasebox">
+      <div class="phaselabel" id="phaseLabel">Ready</div>
+      <div class="phasecount" id="phaseCount">&mdash;</div>
+    </div>
+    <div class="dots" id="dots"></div>
+    <div class="met"><span>beat</span><span class="beat" id="metdot"></span></div>
+  </div>
+
+  <div class="cardwrap" id="cardwrap">
+    <div class="card" id="card">
+      <div class="cardscale" id="cardScale">
+        <div class="cardstaff" id="cardStaff"></div>
+        <div class="strip" id="cardStrip"></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">
+    <b>Difficulty Level</b> loads a recommended pool of note values; <b>Rhythm Complexity</b> controls how dense and syncopated each card is &mdash; tap <b>Combine</b> to mix several into one grab&#8209;bag. <b>Play</b> begins with a Get&#8209;Ready count&#8209;off, then Count It while the pulse sweeps the subdivisions; add a Clap It pass under <b>Steps</b>. Tap the beat (or spacebar) to set the tempo, or type an exact BPM. <b>Your Own Music</b> (in Advanced Options) loads an audio file, finds its tempo and downbeat, and locks the drill to the track. <b>Rhythm Customization</b> sets the exact values, and <b>Advanced Options</b> hold card length, syllable reveal, &ldquo;Hear It,&rdquo; ties, and count&#8209;off length. <b>Save Current</b> and <b>Copy Link</b> keep a setup; <b>Full&#8209;Screen</b> projects the card. Everything runs in the browser &mdash; nothing to download, works offline.
+  </p>
+
+  <!-- hidden engine DOM contract: the lifted generator reads these exact ids -->
+  <div class="enginecontract" aria-hidden="true">
+    <select id="dropdownLevel"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
+    <select id="dropdownTimeSignature"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="6/8">6/8</option><option value="9/8">9/8</option><option value="12/8">12/8</option><option value="2/2">2/2</option></select>
+    <select id="dropdownDifficulty"><option value="easy">easy</option><option value="medium">medium</option><option value="hard">hard</option></select>
+    <input type="checkbox" id="allowTies" />
+    <div id="rhythmContractCheckboxes"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  if (typeof VexFlow === "undefined") {
+    document.getElementById("cardStaff").innerHTML =
+      '<div class="cardmsg" style="color:#c0504d">Could not load the notation library (VexFlow 5). Check the internet connection and reload.</div>';
+    return;
+  }
+  try {
+    var Flow = VexFlow.Flow || VexFlow;
+    if (Flow && typeof Flow.setMusicFont === 'function') Flow.setMusicFont('Bravura');
+  } catch(e){}
+
+  // ===================== LIFTED RHYTHM ENGINE (verbatim) =====================

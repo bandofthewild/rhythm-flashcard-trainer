@@ -1,0 +1,4 @@
+var VexFlow={Flow:{setMusicFont:function(){}}}, window={AudioContext:function(){}}, performance={now:function(){return 0;}};
+var localStorage={getItem:function(){return null;},setItem:function(){}};
+function _stubEl(){return {value:'',checked:false,textContent:'',innerHTML:'',className:'',classList:{add(){},remove(){},toggle(){},contains(){return false;}},style:{},children:[],appendChild(){},addEventListener(){},querySelector(){return null;},querySelectorAll(){return [];},setAttribute(){},getAttribute(){return null;},closest(){return null;},hidden:false,clientWidth:700};}
+var document={ body:{classList:{add(){},remove(){},contains(){return false;}}}, documentElement:{}, addEventListener(){}, getElementById:_stubEl, createElement:_stubEl, createElementNS:_stubEl, querySelectorAll(){return [];}, querySelector(){return null;} };
