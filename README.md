@@ -38,8 +38,7 @@ The build concatenates `src/shell_top.html + src/engine.js + src/shell_bottom.ht
 into `index.html`, syntax-checks it, and runs both test suites. It prints `BUILD OK`
 only if everything passes.
 
-Requires Node.js (for the tests) and Python 3 (for the syntax-check extraction on the
-`build.sh` path).
+Requires **Node.js only** (LTS from nodejs.org). No Python, no other tooling.
 
 ## Tests
 

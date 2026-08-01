@@ -34,16 +34,7 @@ jobs:
           echo "built $(wc -c < index.html) bytes, $(wc -l < index.html) lines"
 
       - name: Syntax check the inline script
-        run: |
-          python3 - <<'PY'
-          s = open('index.html', encoding='utf-8').read()
-          start = s.rindex('<script>\n(function(){')
-          end   = s.rindex('</script>')
-          open('test/_inline.js', 'w', encoding='utf-8').write(s[start + len('<script>\n'):end])
-          PY
-          cat test/dom-stubs.js test/_inline.js > test/_wrapped.js
-          node --check test/_wrapped.js
-          echo "syntax OK"
+        run: node test/syntax-check.js
 
       - name: Rhythm generation suite (3024 tests)
         run: node test/generation.test.js

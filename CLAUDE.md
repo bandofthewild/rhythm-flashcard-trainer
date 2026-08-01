@@ -35,7 +35,8 @@ Concatenation order is `shell_top.html + engine.js + shell_bottom.html`. Nothing
 
 ## Verification protocol — run before every hand-off
 
-`./build.sh` does all of this and must end with `BUILD OK`:
+`./build.sh` (or `build.bat` on Windows) does all of this and must end with `BUILD OK`.
+Node.js is the only requirement.
 
 1. Rebuild `index.html` from `src/`
 2. `node --check` the extracted inline script (syntax)
