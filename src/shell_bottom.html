@@ -165,18 +165,12 @@
     }
     if(audioCtx.state==='suspended') audioCtx.resume();
   }
-  // iOS Safari only unlocks a suspended AudioContext inside a direct user-gesture handler,
-  // and can re-suspend it around a fullscreen transition or backgrounding the tab. Rather
-  // than depend on Play being literally the first tap, make one attempt on the very first
-  // gesture anywhere — a single bubble-phase, self-removing listener per event type, so it
-  // fires at most once total and never competes with a button's own click handler.
-  function unlockAudioOnce(){
-    ensureAudio();
-    document.removeEventListener('touchstart', unlockAudioOnce);
-    document.removeEventListener('click', unlockAudioOnce);
-  }
-  document.addEventListener('touchstart', unlockAudioOnce, {passive:true});
-  document.addEventListener('click', unlockAudioOnce);
+  // NOTE: a global document-level "unlock audio on first tap anywhere" listener lived
+  // here briefly this session. Removed — it was unproven (never confirmed to fix the
+  // original iOS audio report) and, unlike the Note Board (which has no such listener and
+  // relies solely on ensureAudio() from each control's own handler, e.g. Play/Tap below),
+  // it's global, continuous machinery that's an unnecessary risk to keep around. Match the
+  // simpler, proven pattern: ensureAudio() is called directly from the controls that need it.
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState==='visible' && audioCtx && audioCtx.state==='suspended') audioCtx.resume();
   });
@@ -1364,23 +1358,12 @@
     if(grp && home) home.parentNode.insertBefore(grp, home.nextSibling);
     if(slot) slot.style.display='none';
   }
-  // iOS Safari doesn't reliably grant real requestFullscreen() on arbitrary elements, so
-  // Full-Screen often runs with Safari's own chrome still on screen — in landscape that's
-  // a persistent tab bar that 100vh/100dvh don't necessarily account for (dvh tracks the
-  // portrait toolbar's collapse, not this). window.visualViewport.height is the one number
-  // that reflects what's ACTUALLY visible, so measure it directly and pin .wrap to that
-  // exact pixel height while present, overriding the vh/dvh CSS as a fallback only.
-  function fitPresentHeight(){
-    if(!document.body.classList.contains('present')) return;
-    var vv=window.visualViewport;
-    var h=vv ? vv.height : window.innerHeight;
-    document.querySelector('.wrap').style.height=h+'px';
-    refitPresent();
-  }
-  if(window.visualViewport){
-    window.visualViewport.addEventListener('resize', fitPresentHeight);
-    window.visualViewport.addEventListener('scroll', fitPresentHeight);
-  }
+  // NOTE: a window.visualViewport-driven fitPresentHeight() lived here briefly this
+  // session, pinning .wrap's height directly and re-rendering the card on every
+  // visualViewport resize/scroll event. Removed — it was never confirmed to fix anything
+  // on a real device, and it's exactly the kind of continuous, global machinery the Note
+  // Board (present mode there is just padding, no explicit height rule at all) doesn't
+  // need and doesn't have. Back to the plain 100vh/100dvh CSS fallback (see shell_top.html).
   function enterPresent(){
     document.body.classList.add('present');
     moveDiffControlsToPresent();
@@ -1389,9 +1372,6 @@
     // platform; a user who wants the browser's own chrome hidden too can press F11 (or
     // their browser's fullscreen shortcut) themselves — the fullscreenchange listener
     // below still notices and adds the real-fullscreen top clearance if they do.
-    ensureAudio();                          // the fullscreen transition itself can re-suspend audio on iOS
-    setTimeout(ensureAudio, 300);           // and again once the transition has actually settled
-    fitPresentHeight(); setTimeout(fitPresentHeight, 300);
     requestAnimationFrame(function(){ requestAnimationFrame(refitPresent); });
     setTimeout(refitPresent, 250);
   }
@@ -1399,7 +1379,6 @@
     var was=document.body.classList.contains('present');
     moveDiffControlsHome();
     document.body.classList.remove('present');
-    document.querySelector('.wrap').style.height='';   // let the (non-present) CSS own it again
     if(was) setTimeout(function(){ renderCard(cardMeasures.length?cardMeasures:[]); }, 60);
     exitFS();
   }
@@ -1420,7 +1399,7 @@
   // have this browser behavior) so extra top clearance only applies where it's needed.
   function syncRealFullscreenClass(){
     document.body.classList.toggle('real-fullscreen', !!(document.fullscreenElement||document.webkitFullscreenElement));
-    if(document.body.classList.contains('present')) setTimeout(fitPresentHeight, 30);
+    if(document.body.classList.contains('present')) setTimeout(refitPresent, 30);
   }
   document.addEventListener('fullscreenchange', function(){ syncRealFullscreenClass(); if(!document.fullscreenElement && document.body.classList.contains('present')) exitPresent(); });
   document.addEventListener('webkitfullscreenchange', function(){ syncRealFullscreenClass(); if(!document.webkitFullscreenElement && document.body.classList.contains('present')) exitPresent(); });

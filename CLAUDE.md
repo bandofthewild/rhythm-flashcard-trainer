@@ -101,6 +101,28 @@ asymmetrical meters at a teacher's actual projector resolution.
 - While a song owns the clock: tap-tempo becomes "Beat 1", speed trainer off and greyed,
   tempo slider locked and relabelled "Tempo (from song)", groove forced to Off.
 
+## Full-screen (present mode) invariants
+
+- **Never give a button the bare class `present` (or any other name that collides with
+  the `body.present` mode class).** `enterPresent()` adds class `present` to `<body>` to
+  mark full-screen mode; the "Full-Screen"/"Exit" buttons were *also* styled with class
+  `present` (unrelated — just a styling class, predating the mode class). A bare `.present`
+  selector matches **any** element with that class, including `<body>`, so the shared
+  button "press feedback" rule (`.present:active{transform:scale(.92)}`) fired on
+  `<body>` itself on every mousedown anywhere in full-screen mode — visibly scaling the
+  whole page down to 92% and back on every click. Because a CSS `transform` on `<body>`
+  moves every descendant's actual hit-test position without reflowing anything, this made
+  clicks in full-screen wildly unreliable on desktop (worked only if mousedown/mouseup
+  happened to land within the shifted target) while a slider drag or a synthetic
+  `.click()` still worked fine — a very confusing symptom to debug from behavior alone.
+  `.present{cursor:pointer}` leaking onto `<body>` was also the source of a stray
+  pointer/"hand" cursor hovering over the whole full-screen background. Fixed by renaming
+  the buttons' class to `presentbtn`, scoped away from the body mode class. If a full-screen
+  desktop click bug like this ever recurs, check computed `transform`/`padding`/`cursor` on
+  `<body>` itself first — a bare class selector colliding with `body.present` is a much
+  more likely culprit than the fullscreen/audio/viewport machinery this bug was originally
+  (wrongly) blamed on.
+
 ## Mobile invariants — these were bugs once too (Wix embed gets real phone traffic)
 
 - **Never re-derive an SVG's `viewBox` from `svgEl.width.baseVal.value`** once that SVG's
@@ -146,37 +168,46 @@ asymmetrical meters at a teacher's actual projector resolution.
   two paths or make the phone one "smarter" — the fixed-render-then-zoom approach exists
   specifically so VexFlow never sees an extreme lineWidth on a huge projector, and that
   reasoning doesn't apply on a phone, where the natural size is already in the right range.
-- **iOS Safari often doesn't grant real `requestFullscreen()`**, so Full-Screen frequently
-  runs with Safari's own chrome still visible — in landscape that's a persistent tab bar
-  that `100vh`/`100dvh` don't account for (`dvh` tracks the portrait toolbar's collapse,
-  not this). `.wrap`'s height is pinned directly from `window.visualViewport.height` (see
-  `fitPresentHeight()`), updated live on its `resize`/`scroll` events, with the `vh`/`dvh`
-  CSS only as the fallback for browsers without `visualViewport`.
-- **`enterPresent()` deliberately does NOT call `requestFullscreen()` anymore — don't add
-  it back without solving the problem that got it removed.** It seemed like an obvious way
-  to also hide the *browser's* chrome (address bar, tabs) on top of our own CSS-based
-  layout, but it caused more problems than it solved: iOS mostly rejects it anyway (the
-  whole reason the CSS-based "present" mode exists), and on desktop, real fullscreen
-  introduced browser-level quirks outside the app's control — Chrome/Edge/Firefox reveal
-  their own "press Esc to exit" hover bar near the top of a real fullscreen window, and it
-  was reported (not fully root-caused — this sandbox's `requestFullscreen()` calls get
-  rejected outright, so it couldn't be reproduced directly here) that clicks could stop
-  reaching controls anywhere on the page. The CSS-only "present" mode is the reliable,
-  well-tested experience everywhere; a user who wants the browser's own chrome gone too
-  can press F11 (or their browser's fullscreen shortcut) themselves — the
-  `fullscreenchange` listener still notices if they do and adds the extra top clearance
-  (the `real-fullscreen` body class) for that hover bar, without our own code ever
-  triggering the fragile programmatic path.
-- **Audio needs a real user gesture to unlock, and this app is deployed two different
-  ways that affect how strict that requirement is.** The Rhythm Trainer's promo card opens
-  it in a **new tab** (not an iframe), so any tap/click/keydown anywhere unlocking
-  `AudioContext` (see the `ensureAudio()` listeners) has been enough in testing. The
-  **Note Board**, by contrast, needed a dedicated "tap to enable sound" button because it's
-  actually embedded **in an iframe** on the Wix page, and some browsers are stricter about
-  which gestures count as "real" inside embedded/cross-origin content specifically. If the
-  Trainer is ever embedded the same way (rather than opened standalone), re-check whether
-  the broad gesture-listener approach here is still sufficient, or whether it needs the
-  Note Board's explicit button too — don't assume standalone-tab behavior carries over.
+- **`enterPresent()` deliberately does NOT call `requestFullscreen()` — don't add it back
+  without solving the problem that got it removed.** It seemed like an obvious way to also
+  hide the *browser's* chrome (address bar, tabs) on top of our own CSS-based layout, but
+  it caused more problems than it solved: iOS mostly rejects it anyway (the whole reason
+  the CSS-based "present" mode exists), and on desktop, real fullscreen introduced
+  browser-level quirks outside the app's control — Chrome/Edge/Firefox reveal their own
+  "press Esc to exit" hover bar near the top of a real fullscreen window. The CSS-only
+  "present" mode is the reliable, well-tested experience everywhere; a user who wants the
+  browser's own chrome gone too can press F11 (or their browser's fullscreen shortcut)
+  themselves — the `fullscreenchange` listener still notices if they do and adds extra top
+  clearance (the `real-fullscreen` body class) for that hover bar, without our own code
+  ever triggering the fragile programmatic path.
+- **Full-screen's height comes from plain CSS (`100vh`/`100dvh`) only — there is
+  deliberately no JS re-measuring it.** A `window.visualViewport`-driven
+  `fitPresentHeight()` lived here briefly (pinning `.wrap`'s height directly, re-rendering
+  the card on every `visualViewport` `resize`/`scroll` event) to work around Safari's
+  persistent landscape tab bar not being reflected in `dvh`. It was removed after a
+  confirmed report that **real mouse clicks stopped reaching controls anywhere on the
+  page** in a plain windowed desktop browser (no real fullscreen involved) — a synthetic
+  `.click()` and slider dragging both still worked, meaning something was interfering
+  specifically with the browser's own hit-testing, not the app's click handlers
+  themselves. It was never conclusively proven that this *specific* mechanism was the
+  cause (a continuous re-render loop from a scrollbar toggling by a pixel and re-firing
+  `visualViewport` was the leading theory), but it's exactly the kind of continuous,
+  global, unproven-on-a-real-device machinery the Note Board doesn't have and doesn't
+  need — its present mode is just padding, no explicit height rule at all. Don't
+  re-introduce a `visualViewport`-driven height/re-render loop without first confirming
+  on a real device that the plain CSS fallback is actually insufficient.
+- **There is no global "unlock audio on the first tap anywhere" listener, and there
+  shouldn't be one.** One lived on `document` (bubble-phase, self-removing after the first
+  `touchstart`/`click`) briefly this session, to address a *reported but never confirmed*
+  iOS audio issue. It was removed for the same reason as the point above: unproven
+  benefit, and it's global, page-wide machinery the Note Board doesn't have — Note Board
+  calls `ensureAudio()` directly from each control that needs it (Play, Tap) and nothing
+  else, which is what this file does now too. The Rhythm Trainer's promo card opens it in
+  a **new tab** (not an iframe); the **Note Board** needed a dedicated "tap to enable
+  sound" button specifically because it's embedded **in an iframe** on the Wix page, where
+  some browsers are stricter about which gestures count as "real." If the Trainer is ever
+  embedded the same way, re-check whether per-control `ensureAudio()` calls are still
+  sufficient, or whether it needs the Note Board's explicit button too.
 
 ## Design constraints
 
