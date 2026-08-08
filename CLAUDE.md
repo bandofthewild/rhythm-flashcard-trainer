@@ -46,14 +46,22 @@ Node.js is the only requirement.
 If a change touches the counting engine, also eyeball the sample counting lines the
 generation suite prints (4/4, 6/8, cut, asymmetrical).
 
-## What cannot be verified here — always flag it
+## What can and can't be verified here
 
-There is no browser in this environment. **VexFlow rendering and Web Audio cannot be
-tested.** After any change to notation, beaming, layout, full-screen scaling, or sound,
-say so plainly and ask for a screenshot. Do not claim visual/audio correctness.
+Claude Code sessions on this repo have had a real Chromium browser pane (resizable to any
+viewport, with DOM/console/network inspection and screenshots) — use it. Rendering,
+layout, and console-error regressions at a given viewport size (including narrow/mobile
+widths) can and should be checked directly rather than guessed at from reading source.
 
-Known items that have needed screenshot verification: beam grouping in asymmetrical
-meters, full-screen scale factor, counting-strip alignment and collisions, groove feel.
+What still can't be verified from here: real-device behavior that a desktop Chromium pane
+doesn't reproduce — iOS Safari's collapsing URL bar (the `100vh`/`100dvh` distinction, see
+below), touch-gesture quirks, and real hardware audio latency/output. After a change
+whose correctness depends on one of those, say so plainly and ask for it to be checked on
+an actual phone. Don't claim device-specific correctness the pane can't back up.
+
+Known items that have needed real-device (not just pane) verification: full-screen on iOS
+Safari specifically, groove feel/latency on real hardware, beam grouping fine details in
+asymmetrical meters at a teacher's actual projector resolution.
 
 ## Architecture notes worth knowing
 
@@ -93,6 +101,32 @@ meters, full-screen scale factor, counting-strip alignment and collisions, groov
 - While a song owns the clock: tap-tempo becomes "Beat 1", speed trainer off and greyed,
   tempo slider locked and relabelled "Tempo (from song)", groove forced to Off.
 
+## Mobile invariants — these were bugs once too (Wix embed gets real phone traffic)
+
+- **Never re-derive an SVG's `viewBox` from `svgEl.width.baseVal.value`** once that SVG's
+  `width` attribute is a percentage. `.baseVal.value` resolves a percentage length against
+  the element's *current rendered CSS box* — on a narrow phone that's the small container
+  width, not the (wider) coordinate space the notes were actually laid out in. Feeding
+  that back into `viewBox` shrinks the coordinate system without moving any already-placed
+  glyphs, silently clipping everything past the new, narrower width. This is exactly why
+  notation disappeared on mobile once: `renderOneLineWithVexFlow`'s "re-assert fluid sizing"
+  pass in `engine.js` was doing this. Always reuse the original `svgW`/`lineH` the drawing
+  was laid out in — they're already in scope; there's never a reason to re-derive them from
+  a percentage-resolved DOM read.
+- **`100vh` includes the area behind iOS Safari's collapsing URL bar** — the real visible
+  height is smaller whenever that chrome is showing, so a fixed `100vh` full-screen layout
+  overflows off the bottom of the screen on an iPhone. Use `100dvh` with a `100vh` fallback
+  declared first (`height:100vh; height:100dvh;` — an unsupported value is ignored per
+  declaration, so older browsers keep the `vh` line and newer ones use `dvh`). Applies to
+  `body.present .wrap` and `.modalbox`'s `max-height`.
+- **Full-screen's control row is tuned for a wide projector, not a phone in portrait.** On
+  a narrow+short viewport the wrapped control rows above the card can eat most of the
+  vertical space, leaving too little for the notation. `.cardwrap`/`.card` use
+  `overflow:auto` (not `hidden`) in present mode *specifically so that case is scrollable
+  instead of silently clipping* — on a projector everything already fits via the
+  scale-to-fit logic in `renderCard()`, so `auto` never shows a scrollbar there. Don't
+  change these back to `hidden` without re-solving the narrow-viewport case some other way.
+
 ## Design constraints
 
 - **Visibility is king.** This gets projected to a full ensemble. Full-screen must be
@@ -102,6 +136,9 @@ meters, full-screen scale factor, counting-strip alignment and collisions, groov
 - Must work offline, from a single file, on a school Chromebook. No build step in the
   browser, no external deps beyond the VexFlow CDN and Google Fonts.
 - Classroom pacing over cleverness. Prefer one obvious control to two clever ones.
+- **Mobile Safari is a real, supported target**, not just desktop/Chromebook — the app is
+  embedded on beyermusicresources.com (Wix) and gets phone traffic directly. See "Mobile
+  invariants" above before touching layout, viewport units, or SVG sizing.
 
 ## Deploying
 

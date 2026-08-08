@@ -6034,13 +6034,17 @@ function renderOneLineWithVexFlow(renderDiv, countingSvg, timeSig, lineRhythms, 
         }
     });
     
-    // Re-assert fluid SVG sizing after VexFlow finish (prevents print right-edge crop)
+    // Re-assert fluid SVG sizing after VexFlow finish (prevents print right-edge crop).
+    // Must reuse the same svgW/lineH the drawing was laid out in — NOT re-derive it from
+    // svgEl.width.baseVal.value. That property resolves a percentage width against the
+    // element's current CSS box, so on a narrow (e.g. mobile) container it comes back as
+    // the small rendered pixel width, not the wide coordinate space notes were placed in.
+    // Feeding that back into viewBox shrinks the coordinate system to match the narrow
+    // box without moving any already-placed glyphs, clipping everything past that width.
     try {
         const svgEl = renderDiv.querySelector('svg');
         if (svgEl) {
-            const vbW = svgEl.width && svgEl.width.baseVal ? svgEl.width.baseVal.value : svgW;
-            const vbH = svgEl.height && svgEl.height.baseVal ? svgEl.height.baseVal.value : lineH;
-            svgEl.setAttribute('viewBox', `0 0 ${vbW} ${vbH}`);
+            svgEl.setAttribute('viewBox', `0 0 ${svgW} ${lineH}`);
             svgEl.setAttribute('width', '100%');
             svgEl.setAttribute('preserveAspectRatio', 'xMinYMin meet');
             svgEl.style.width = '100%';

@@ -17,6 +17,14 @@
     running:false
   };
 
+  // ---- a brief brass flash on buttons whose effect is otherwise easy to miss
+  // (a small internal nudge with no adjacent readout, e.g. the downbeat/phase nudges) ----
+  function flashBtn(el, ms){
+    if(!el) return;
+    el.classList.add('flash');
+    setTimeout(function(){ el.classList.remove('flash'); }, ms||160);
+  }
+
   // ---- keep the hidden engine DOM contract in sync with state ----
   function syncEngineDom(){
     var lv=document.getElementById('dropdownLevel'); if(lv) lv.value=String(state.level);
@@ -949,7 +957,9 @@
     vq=[]; STEP=0; cardsDealt=0;
     resyncArmed=false; pendingBpm=null;
     computeCycleLens();
-    clearSweep(); setPhase('', 'Ready', '\u2014'); setDots(0);
+    // waiting for the song's next downbeat can take up to a full bar \u2014 say so,
+    // rather than sitting on "Ready" while the track is already audibly playing
+    clearSweep(); setPhase('countin', 'Preparing', '\u2026'); setDots(0);
     state.running=true;
     nextStepTime=songBeatTime(k);
     go.textContent='\u25a0 Stop'; go.classList.add('running');
@@ -1037,14 +1047,32 @@
     document.getElementById('songCtl2').hidden=!on;
     var bg=document.getElementById('songBadgeGrp'); if(bg) bg.hidden=!on;
   }
+  // the badge is narrow on purpose (to leave room for Play/Full-Screen on the same
+  // row); a long title scrolls into view rather than just getting cut off with "\u2026"
+  function setSongBadgeText(text){
+    var badge=document.getElementById('songBadge'), t=document.getElementById('songBadgeText');
+    if(!badge || !t) return;
+    t.textContent=text;
+    badge.classList.remove('scroll');
+    t.style.transform='';
+    t.style.animationDuration='';
+    requestAnimationFrame(function(){
+      var overflow=t.scrollWidth - badge.clientWidth;
+      if(overflow>4){
+        var dist=-(overflow+8);
+        t.style.setProperty('--scrollx', dist+'px');
+        t.style.animationDuration=Math.max(5, Math.min(16, 4+Math.abs(dist)/40))+'s';
+        badge.classList.add('scroll');
+      }
+    });
+  }
   function refreshSongUI(){
     var bpmEl=document.getElementById('songBpm'); if(bpmEl) bpmEl.textContent = songLoaded()? (Math.round(song.bpm*10)/10) : '\u2014';
     var un=document.getElementById('songUnit'); if(un) un.textContent = songLoaded()? pulseName() : '';
     var f=octaveFactor();
     var f1=document.getElementById('songF1'), f2=document.getElementById('songF2');
     if(f1) f1.textContent=f; if(f2) f2.textContent=f;
-    var badge=document.getElementById('songBadge');
-    if(badge) badge.textContent = song.name ? ('\u266a '+song.name) : '';
+    setSongBadgeText(song.name ? ('\u266a '+song.name) : '');
     var sv=document.getElementById('songSave');
     if(sv) sv.textContent = song.saved ? 'Saved \u2713' : 'Save Song';
     var vol=document.getElementById('songVol'); if(vol) vol.value=Math.round(song.vol*100);
@@ -1213,19 +1241,19 @@
     this.value='';
   });
   document.getElementById('songRemove').addEventListener('click', removeSong);
-  document.getElementById('songDiv').addEventListener('click', function(){ songOctave(-1); });
-  document.getElementById('songMul').addEventListener('click', function(){ songOctave(1); });
+  document.getElementById('songDiv').addEventListener('click', function(){ flashBtn(this); songOctave(-1); });
+  document.getElementById('songMul').addEventListener('click', function(){ flashBtn(this); songOctave(1); });
   document.getElementById('songBeat1').addEventListener('click', tapBeatOne);
-  document.getElementById('songBack').addEventListener('click', function(){ shiftDownbeat(-1); });
-  document.getElementById('songFwd').addEventListener('click', function(){ shiftDownbeat(1); });
-  document.getElementById('songMinus').addEventListener('click', function(){ nudgePhase(-20); });
-  document.getElementById('songPlus').addEventListener('click', function(){ nudgePhase(20); });
+  document.getElementById('songBack').addEventListener('click', function(){ flashBtn(this); shiftDownbeat(-1); });
+  document.getElementById('songFwd').addEventListener('click', function(){ flashBtn(this); shiftDownbeat(1); });
+  document.getElementById('songMinus').addEventListener('click', function(){ flashBtn(this); nudgePhase(-20); });
+  document.getElementById('songPlus').addEventListener('click', function(){ flashBtn(this); nudgePhase(20); });
   document.getElementById('songVol').addEventListener('input', function(){
     song.vol=(+this.value)/100;
     if(song.gain) song.gain.gain.value=song.vol;
     autoPersistSong();
   });
-  document.getElementById('songSave').addEventListener('click', saveSong);
+  document.getElementById('songSave').addEventListener('click', function(){ flashBtn(this); saveSong(); });
   document.getElementById('songSel').addEventListener('change', function(){ if(this.value) loadSavedSong(this.value); });
   document.getElementById('songDel').addEventListener('click', function(){
     var sel=document.getElementById('songSel'), n=sel.value;
@@ -1276,14 +1304,27 @@
       if(fn){ try{ fn.call(document); }catch(e){} }
     }
   }
+  // Full-screen swaps the song-name badge for live Rhythm Complexity controls, in the
+  // same slot — teachers can nudge complexity mid-song without leaving the projection.
+  function moveDiffControlsToPresent(){
+    var grp=document.getElementById('diffGrp'), slot=document.getElementById('fsDiffSlot');
+    if(grp && slot){ slot.appendChild(grp); slot.style.display='flex'; }
+  }
+  function moveDiffControlsHome(){
+    var grp=document.getElementById('diffGrp'), home=document.getElementById('diffGrpHome'), slot=document.getElementById('fsDiffSlot');
+    if(grp && home) home.parentNode.insertBefore(grp, home.nextSibling);
+    if(slot) slot.style.display='none';
+  }
   function enterPresent(){
     document.body.classList.add('present');
+    moveDiffControlsToPresent();
     requestFS(document.documentElement);   // real fullscreen where supported; class-based works regardless (e.g. iOS)
     requestAnimationFrame(function(){ requestAnimationFrame(refitPresent); });
     setTimeout(refitPresent, 250);
   }
   function exitPresent(){
     var was=document.body.classList.contains('present');
+    moveDiffControlsHome();
     document.body.classList.remove('present');
     if(was) setTimeout(function(){ renderCard(cardMeasures.length?cardMeasures:[]); }, 60);
     exitFS();
@@ -1320,11 +1361,11 @@
     var lbl=document.createElement('span'); lbl.textContent='These follow the selected Difficulty Levels automatically. Tweak individual values here:'; master.appendChild(lbl);
     var allKeys=[]; RPICK_GROUPS.forEach(function(g){ g[1].forEach(function(k){ if(RHYTHM_DEFS[k]) allKeys.push(k); }); });
     var allBtn=document.createElement('button'); allBtn.className='minibtn'; allBtn.textContent='All';
-    allBtn.addEventListener('click', function(){ setKeysChecked(allKeys, true); });
+    allBtn.addEventListener('click', function(){ flashBtn(allBtn); setKeysChecked(allKeys, true); });
     var noneBtn=document.createElement('button'); noneBtn.className='minibtn'; noneBtn.textContent='None';
-    noneBtn.addEventListener('click', function(){ setKeysChecked(allKeys, false); });
+    noneBtn.addEventListener('click', function(){ flashBtn(noneBtn); setKeysChecked(allKeys, false); });
     var recBtn=document.createElement('button'); recBtn.className='minibtn'; recBtn.textContent='Reset to Levels';
-    recBtn.addEventListener('click', function(){ state.customRhythms=false; applyLevelUnion(); if(!state.running) dealPreviewCard(); });
+    recBtn.addEventListener('click', function(){ flashBtn(recBtn); state.customRhythms=false; applyLevelUnion(); if(!state.running) dealPreviewCard(); });
     master.appendChild(allBtn); master.appendChild(noneBtn); master.appendChild(recBtn);
     rpick.appendChild(master);
     var host=document.createElement('div'); host.id='rhythmCheckboxes'; host.style.display='contents';
@@ -1334,9 +1375,9 @@
       var head=document.createElement('div'); head.className='sechead';
       var h=document.createElement('h4'); h.textContent=grp[0]; head.appendChild(h);
       var ga=document.createElement('button'); ga.className='catbtn'; ga.textContent='all';
-      ga.addEventListener('click', function(){ setKeysChecked(groupKeys, true); });
+      ga.addEventListener('click', function(){ flashBtn(ga); setKeysChecked(groupKeys, true); });
       var gn=document.createElement('button'); gn.className='catbtn'; gn.textContent='none';
-      gn.addEventListener('click', function(){ setKeysChecked(groupKeys, false); });
+      gn.addEventListener('click', function(){ flashBtn(gn); setKeysChecked(groupKeys, false); });
       head.appendChild(ga); head.appendChild(gn);
       col.appendChild(head);
       grp[1].forEach(function(key){
@@ -1421,8 +1462,10 @@
   function selectDiffs(vals){
     state.difficulties = vals.slice();
     updateLevelHint();
-    if(state.running) stop();
-    dealPreviewCard();
+    // unlike a level/meter change, a complexity change doesn't need a restart — it
+    // just takes effect on the next card, so it can be nudged live during Full-Screen
+    // without cutting off the current card, the groove, or a loaded song
+    if(!state.running) dealPreviewCard();
   }
   function buildGroupingPicker(){
     var grp=document.getElementById('groupingGrp'), seg=document.getElementById('groupingSeg');
@@ -1477,7 +1520,11 @@
   wireCombine('diffCombine','combineDiffs','diffSeg','data-df','difficulties','medium');
   segPick('measuresSeg','data-m', function(v){ state.measures=parseInt(v,10)||1; if(state.running) stop(); dealPreviewCard(); });
   segPick('sylSeg','data-sy', function(v){ state.syllables=v; applyStaticSyllables(); if(!state.running) clearSweep(); });
-  segPick('soundSeg','data-s', function(v){ state.sound=v; });
+  segPick('soundSeg','data-s', function(v){
+    state.sound=v;
+    // picking an actual groove (or Off) hands the clock back from a loaded song
+    if(songLoaded()){ removeSong(); closeSongPanel(); }
+  });
   segPick('stepsSeg','data-x', function(v){ state.steps=v; });
   segPick('advanceSeg','data-adv', function(v){ state.autoAdvance = (v==='auto'); });
   segPick('prepSeg','data-p', function(v){ state.prepBeatsTarget=parseInt(v,10)||4; if(state.running){ computeCycleLens(); } });
@@ -1616,7 +1663,34 @@
   document.getElementById('helpClose').addEventListener('click', closeHelp);
   document.getElementById('helpGo').addEventListener('click', closeHelp);
   helpModal.addEventListener('click', function(e){ if(e.target===helpModal) closeHelp(); });
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeHelp(); });
+
+  // ---- Your Own Music: dropdown panel + its own "how it works" tutorial ----
+  var songHelpModal=document.getElementById('songHelpModal');
+  function openSongHelp(){ songHelpModal.hidden=false; }
+  function closeSongHelp(){ songHelpModal.hidden=true; }
+  document.getElementById('songInfoBtn').addEventListener('click', openSongHelp);
+  document.getElementById('songHelpClose').addEventListener('click', closeSongHelp);
+  document.getElementById('songHelpGo').addEventListener('click', closeSongHelp);
+  songHelpModal.addEventListener('click', function(e){ if(e.target===songHelpModal) closeSongHelp(); });
+  var songBtn=document.getElementById('songBtn');
+  function openSongPanel(){
+    document.getElementById('songPanel').hidden=false;
+    songBtn.classList.add('on');
+    songBtn.innerHTML='♪ Your Own Music ▴';
+    try{
+      if(!localStorage.getItem('rhythmSongInfoSeen')){ openSongHelp(); localStorage.setItem('rhythmSongInfoSeen','1'); }
+    }catch(e){}
+  }
+  function closeSongPanel(){
+    document.getElementById('songPanel').hidden=true;
+    songBtn.classList.remove('on');
+    songBtn.innerHTML='♪ Your Own Music ▾';
+  }
+  songBtn.addEventListener('click', function(){
+    if(document.getElementById('songPanel').hidden) openSongPanel(); else closeSongPanel();
+  });
+
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeHelp(); closeSongHelp(); } });
 
   // ================= init =================
   buildRhythmPicker();

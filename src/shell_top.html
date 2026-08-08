@@ -17,6 +17,14 @@
     --head:'Roboto Slab', Georgia, 'Times New Roman', serif;
   }
   *{box-sizing:border-box}
+  /* universal press feedback: every clickable control gets a visible, instant "something
+     happened" cue on mousedown, on top of whatever it does afterward (state change,
+     panel open, etc.) — buttons that only fire a one-off action otherwise looked "dead" */
+  button, .custbtn, .tapbtn, .minibtn, .catbtn, .combinetgl, .seg button, .go, .present,
+  .modalx, .filebtn, .songb1{ transition:transform .07s ease; }
+  button:active, .custbtn:active, .tapbtn:active, .minibtn:active, .catbtn:active,
+  .combinetgl:active, .seg button:active, .go:active, .present:active, .modalx:active,
+  .filebtn:active{ transform:scale(.92); }
   body{
     margin:0; background:var(--ink); color:var(--light);
     font-family:'Nunito Sans', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -46,8 +54,9 @@
   .custbtn{background:var(--panel2); color:var(--brass); border:1px solid var(--brass); border-radius:10px; padding:0 11px; min-height:50px; font-size:12.5px; font-weight:700; cursor:pointer; letter-spacing:0; white-space:nowrap}
   .custbtn:hover{background:var(--brass); color:#fff}
   .custbtn.on{background:var(--brass); color:#fff}
-  .playbar{display:flex; gap:26px; flex-wrap:wrap; align-items:flex-end; margin:6px 0 14px}
+  .playbar{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-end; margin:6px 0 14px}
   .grp{display:flex; flex-direction:column; gap:6px}
+  .grp[hidden]{display:none}
   .grp .lab{font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); min-height:22px; display:flex; align-items:center; white-space:nowrap}
   .grp .lab .multi{display:inline; text-transform:none; letter-spacing:0; font-style:normal; font-size:10.5px; color:var(--brass); background:color-mix(in srgb, var(--brass) 12%, transparent); border-radius:6px; padding:1px 7px; margin-left:6px; font-weight:600}
   .lvlhint{font-size:12px; color:var(--muted); margin-top:8px; max-width:560px; line-height:1.5}
@@ -62,12 +71,15 @@
   .seg.twoline button small{font-size:9.5px; font-weight:400; opacity:.72; letter-spacing:.01em; white-space:nowrap}
   .seg button:disabled{opacity:.4; cursor:default}
   .pitchsel{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:7px; padding:4px 7px; font-size:13px}
-  .go{background:var(--brass); color:#fff; border:0; border-radius:10px; padding:12px 26px; font-size:15px; font-weight:600; cursor:pointer}
+  .go{background:var(--brass); color:#fff; border:0; border-radius:10px; padding:12px 20px; font-size:15px; font-weight:600; cursor:pointer}
   .go.running{background:#b1483f; color:#fff}
-  input[type=range]{width:150px; accent-color:var(--brass)}
-  .tapbtn{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:8px; padding:7px 15px; font-size:13px; font-weight:600; cursor:pointer}
+  input[type=range]{width:130px; accent-color:var(--brass)}
+  .tapbtn{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font-size:13px; font-weight:600; cursor:pointer}
   .tapbtn:hover{border-color:var(--brass)}
   .tapbtn.tapping{background:var(--brass); color:#fff; border-color:var(--brass)}
+  /* a brief brass flash for buttons whose effect (a small internal nudge, no adjacent
+     readout) is otherwise easy to miss — see flashBtn() */
+  .minibtn.flash, .catbtn.flash{background:var(--brass); color:#fff; border-color:var(--brass)}
   .tempoval{font-variant-numeric:tabular-nums; color:var(--light); font-size:13px}
   .tempoval input{width:52px; font-variant-numeric:tabular-nums; color:var(--brass); font-size:14px; font-weight:700; text-align:right; border:1px solid var(--line); border-radius:6px; padding:4px 6px; background:var(--panel2)}
   .tempoval input:focus{outline:none; border-color:var(--brass); box-shadow:0 0 0 2px color-mix(in srgb, var(--brass) 20%, transparent)}
@@ -103,7 +115,7 @@
   .rpick label input{accent-color:var(--brass); width:15px; height:15px}
   .rpick label.rec{color:var(--brass); font-weight:600}
   .rpick label .newtag{font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:#fff; background:var(--c3); border-radius:5px; padding:1px 5px; margin-left:2px}
-  .present{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:10px; padding:12px 18px; font-size:14px; font-weight:600; cursor:pointer}
+  .present{background:var(--panel2); color:var(--light); border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:14px; font-weight:600; cursor:pointer}
   .present:hover{border-color:var(--brass); color:var(--brass)}
 
   .hint{font-size:12px; color:var(--muted); margin:-6px 0 16px}
@@ -175,14 +187,26 @@
 
   /* presentation (fullscreen) mode */
   body.present .controls, body.present .rpick, body.present .utilbar,
-  body.present .advanced, body.present .hint,
+  body.present .advanced, body.present .songpanel, body.present .hint,
   body.present header.top, body.present .sub, body.present .note{display:none !important}
   body.present{overflow:hidden}
-  body.present .wrap{max-width:none; margin:0; padding:16px 12px 8px; height:100vh; display:flex; flex-direction:column; overflow:hidden}
-  body.present .playbar{margin:0 0 6px; flex:0 0 auto}
+  /* 100vh on mobile Safari is measured with the URL/toolbar chrome fully collapsed, so the
+     real page overflows whenever that chrome is actually showing. 100dvh tracks the true
+     visible viewport as the chrome shows/hides; the 100vh line above is the fallback for
+     browsers that don't understand dvh (an unsupported value is simply ignored per-line) */
+  body.present .wrap{max-width:none; margin:0; padding:16px 12px 8px; height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden}
+  /* the room a fixed 1280px layout can't spare, full-screen has plenty of — so the two
+     playbar rows collapse into one: each .playbar disappears as a box (its .grp children
+     join .playbarGroup's own flex row directly) while staying two rows normally */
+  body.present .playbarGroup{display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end; margin:0 0 6px; flex:0 0 auto}
+  body.present .playbarGroup > .playbar{display:contents}
   body.present .status{flex:0 0 auto}
-  body.present .cardwrap{padding:6px 14px; flex:1 1 auto; min-height:0; display:flex; overflow:hidden}
-  body.present .card{padding:6px; flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; min-height:0}
+  /* auto, not hidden: on a wide projector everything fits via the scale-to-fit logic in
+     renderCard() and this never shows a scrollbar. On a narrow/short phone in full-screen,
+     wrapped control rows above can leave too little height for the card — auto means that
+     case is scrollable instead of silently clipping notation off the bottom of the screen */
+  body.present .cardwrap{padding:6px 14px; flex:1 1 auto; min-height:0; display:flex; overflow:auto}
+  body.present .card{padding:6px; flex:1; display:flex; align-items:center; justify-content:center; overflow:auto; min-height:0}
   .cardscale{width:100%; transform-origin:center center}
   body.present .cardscale{width:auto}
   body.present .cardstaff{width:100%}
@@ -190,11 +214,13 @@
   body.present .cardstaff{flex:0 0 auto}
   body.present .exitpresent{display:inline-flex !important}
   body.present #presentBtn{display:none}
+  /* the song name badge gives way to the live Rhythm Complexity controls (see #fsDiffSlot) */
+  body.present #songBadgeGrp{display:none !important}
   .exitpresent{display:none}
 
   .modal{position:fixed; inset:0; background:rgba(8,10,14,.72); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px}
   .modal[hidden]{display:none}
-  .modalbox{position:relative; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px 30px; max-width:900px; max-height:88vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .modalbox{position:relative; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px 30px; max-width:900px; max-height:88vh; max-height:88dvh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5)}
   .modalbox h2{margin:0 0 4px; font-size:24px; font-weight:700; font-family:var(--head); color:var(--brass)}
   .modalbox .tourcols{display:flex; gap:34px; flex-wrap:wrap; margin:18px 0 8px}
   .modalbox .tourcols > div{flex:1 1 230px}
@@ -237,9 +263,16 @@
     body.present .playbar{gap:10px}
   }
   /* ---- Your Own Music ---- */
-  .songsec{flex:1 1 100% !important; max-width:none !important}
-  .songsec .advdesc{margin-left:0; max-width:820px}
+  /* flex-basis:100% forces this onto its own line inside the wrapping .playbar row,
+     between the groove/song controls above it and tempo/steps/cards/play below */
+  .songpanel{flex:1 1 100%; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:2px 0 4px; display:flex; flex-direction:column; gap:9px}
+  .songpanel[hidden]{display:none}
+  .songpanel .sechead{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .songpanel .sechead h4{margin:0; font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--brass); font-weight:600}
+  .songpanel .advdesc{margin:0; max-width:820px; font-size:11.5px; color:var(--muted); line-height:1.45}
+  .songpanel .advdesc b{color:var(--light); font-weight:600}
   .songrow{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin:0}
+  .songrow[hidden]{display:none}
   .songlab{flex:none; font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); font-weight:700}
   .songdiv{flex:none; width:1px; height:20px; background:var(--line); margin:0 5px}
   .filebtn{flex:none; position:relative; overflow:hidden; display:inline-flex; align-items:center; background:var(--panel2); color:var(--brass); border:1px solid var(--brass); border-radius:8px; padding:6px 12px; font-size:12.5px; font-weight:700; cursor:pointer; margin-top:0}
@@ -255,8 +288,18 @@
   .songb1.tapping{background:var(--brass); color:#fff}
   /* real slider: never let flex crush it to a dot */
   #songVol{flex:0 0 auto; width:130px; min-width:130px; accent-color:var(--brass)}
-  .songsec .minibtn{margin-top:0}
-  .songbadge{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:0 12px; min-height:50px; display:flex; align-items:center; font-size:12.5px; font-weight:700; color:var(--brass); max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .songpanel .minibtn{margin-top:0}
+  /* the badge grows to soak up whatever room is left in its row (see #songBadgeGrp);
+     a ping-pong text scroll still covers it when a title is longer than that */
+  #songBadgeGrp{flex:1 1 140px; min-width:0}
+  .songbadge{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:0 12px; min-height:50px; width:100%; display:flex; align-items:center; font-size:12.5px; font-weight:700; color:var(--brass); overflow:hidden; white-space:nowrap}
+  .songbadge .songbadgetext{display:inline-block; white-space:nowrap}
+  .songbadge.scroll .songbadgetext{animation-name:songScroll; animation-timing-function:ease-in-out; animation-iteration-count:infinite}
+  @keyframes songScroll{
+    0%,15%{transform:translateX(0)}
+    50%,85%{transform:translateX(var(--scrollx,0))}
+    100%{transform:translateX(0)}
+  }
   .locked{opacity:.55}
 </style>
 </head>
@@ -277,6 +320,7 @@
           <h3>Get Going</h3>
           <ul>
             <li>Pick a <b>Time Signature</b> and a <b>Difficulty Level</b>, then press <b>Play</b>.</li>
+            <li>Set the <b>Tempo</b> by dragging the slider, typing an exact BPM, or tapping it in &mdash; click <b>Tap</b> (or press the spacebar) in a steady <b>four&#8209;count</b> at the speed you want. A couple of taps gives a rough guess; it locks onto an accurate tempo once you've tapped <b>four times in a row</b>.</li>
             <li>You get a <b>Get Ready</b> count&#8209;off, then <b>Count It</b> &mdash; the pulse sweeps the subdivisions while the class counts in "1 e &amp; a."</li>
             <li>Tap <b>Combine</b> to mix levels/complexities; use <b>Rhythm Customization</b> to pick exact note values.</li>
           </ul>
@@ -292,13 +336,48 @@
         <div>
           <h3>Use Your Own Music</h3>
           <ul>
-            <li><b>Advanced Options &rarr; Your Own Music &rarr; Load a Song&hellip;</b> finds the track's tempo and downbeat, then plays it through the app so the drill <b>locks to your music</b> &mdash; no tapping, no drift.</li>
+            <li><b>Your Own Music</b> (next to Groove) &rarr; <b>Load a Song&hellip;</b> finds the track's tempo and downbeat, then plays it through the app so the drill <b>locks to your music</b> &mdash; no tapping, no drift.</li>
             <li>If the downbeat lands wrong, press <b>Tap Beat 1</b> (or the spacebar) right on beat 1; it comes in one bar later. <b>&divide;</b>/<b>&times;</b> fix a half/double tempo reading.</li>
-            <li>Playing music on another device? Set <b>Groove</b> to <b>Off</b> and <b>tap the beat</b> to match it; tap a 4&#8209;count while running to re&#8209;sync.</li>
+            <li>Playing music from somewhere else (another device, a stream)? Set <b>Groove</b> to <b>Off</b>, then click <b>Tap</b> (or press the spacebar) <b>four times in a row</b>, right on the beat, to match it; tap a fresh four&#8209;count anytime it drifts.</li>
           </ul>
         </div>
       </div>
       <button class="go" id="helpGo">Got It</button>
+    </div>
+  </div>
+
+  <div class="modal" id="songHelpModal" hidden>
+    <div class="modalbox">
+      <button class="modalx" id="songHelpClose" aria-label="Close">&#10005;</button>
+      <h2>Your Own Music &mdash; How It Works</h2>
+      <div class="tourcols">
+        <div>
+          <h3>How It Works</h3>
+          <ul>
+            <li>Loading a song lets the app analyze the file itself and find its <b>tempo</b> and <b>downbeat</b> automatically &mdash; no tapping to get started.</li>
+            <li>The track then plays back through the app's own audio clock, and the drill rides that same clock &mdash; so the two <b>can&rsquo;t drift apart</b>, however long the card runs.</li>
+            <li>Once it's loaded and analyzed, just press <b>Play</b>.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Best Practices</h3>
+          <ul>
+            <li>A clean recording with a clear, steady beat analyzes best; a rubato intro or heavy reverb can throw it off.</li>
+            <li>If the detected tempo is exactly half or double what it should be, use <b>&divide;</b> / <b>&times;</b> to fix it.</li>
+            <li>If the downbeat lands in the wrong place, press <b>Tap Beat 1</b> (or spacebar) right on beat 1 of any bar &mdash; it snaps to the nearest beat and the drill starts one bar later, tempo untouched. <b>&larr;</b>/<b>&rarr;</b> and <b>&plusmn;20ms</b> fine&#8209;tune from there.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Playing From a Different Source</h3>
+          <ul>
+            <li>If the music is coming from somewhere the app can&rsquo;t load &mdash; another device, a stream, a live accompanist &mdash; there&rsquo;s no file to analyze, so it can&rsquo;t lock on directly.</li>
+            <li>Instead, set <b>Groove</b> to <b>Off</b>, then click the <b>Tap</b> button (or press the spacebar) <b>four times in a row</b>, right on the beat, to match it by ear &mdash; the app locks onto a tempo once it has four taps.</li>
+            <li>Because the two clocks are separate, they <b>will</b> drift over time &mdash; tap a fresh four&#8209;count now and then to re&#8209;sync.</li>
+            <li>Loading the audio file here is always the more reliable choice when you can &mdash; that&rsquo;s why it gets its own button.</li>
+          </ul>
+        </div>
+      </div>
+      <button class="go" id="songHelpGo">Got It</button>
     </div>
   </div>
 
@@ -335,7 +414,8 @@
       <span class="lab">&nbsp;</span>
       <button class="custbtn" id="rpickBtn">&#9834; Rhythm Customization &#9662;</button>
     </div>
-    <div class="grp">
+    <span id="diffGrpHome" style="display:none"></span>
+    <div class="grp" id="diffGrp">
       <span class="lab">Rhythm Complexity
         <button type="button" class="combinetgl" id="diffCombine" aria-pressed="false" title="Combine multiple complexities into a grab-bag">Combine</button>
       </span>
@@ -398,8 +478,34 @@
       </div>
       <p class="advdesc">How many felt beats of count&#8209;off before each card. Rounded up to whole bars so the groove stays aligned.</p>
     </div>
-    <div class="sec songsec">
-      <div class="sechead"><h4>Your Own Music</h4></div>
+  </div>
+
+  <div class="rpick" id="rpick"></div>
+
+  <div class="playbarGroup">
+  <div class="playbar">
+    <div class="grp">
+      <span class="lab">Groove</span>
+      <div class="seg" id="soundSeg">
+        <button data-s="rock" class="sel">Rock</button>
+        <button data-s="funk">Funk</button>
+        <button data-s="latin">Latin</button>
+        <button data-s="marching">March</button>
+        <button data-s="metronome">Click</button>
+        <button data-s="none">Off</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lab">Song</span>
+      <button class="custbtn" id="songBtn">&#9834; Your Own Music &#9662;</button>
+    </div>
+  </div>
+
+    <div class="songpanel" id="songPanel" hidden>
+      <div class="sechead">
+        <h4>Your Own Music</h4>
+        <button class="minibtn" id="songInfoBtn">&#9432; How This Works</button>
+      </div>
       <div class="songrow">
         <label class="filebtn">&#9834; Load a Song&hellip;<input type="file" id="songFile" accept="audio/*" /></label>
         <button class="minibtn" id="songRemove" disabled>Remove</button>
@@ -429,25 +535,11 @@
       </div>
       <p class="advdesc" id="songDesc">Finds the track's <b>tempo</b> and <b>downbeat</b>, then plays it through the app so the drill locks to your music &mdash; no tapping, no drift. Beats per bar follows your <b>Time Signature</b>.</p>
     </div>
-  </div>
-
-  <div class="rpick" id="rpick"></div>
 
   <div class="playbar">
     <div class="grp">
-      <span class="lab">Groove</span>
-      <div class="seg" id="soundSeg">
-        <button data-s="rock" class="sel">Rock</button>
-        <button data-s="funk">Funk</button>
-        <button data-s="latin">Latin</button>
-        <button data-s="marching">March</button>
-        <button data-s="metronome">Click</button>
-        <button data-s="none">Off</button>
-      </div>
-    </div>
-    <div class="grp">
       <span class="lab" id="tempoLab">Tempo</span>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px">
         <input type="range" id="tempo" min="30" max="300" value="92" />
         <span class="tempoval"><input type="number" id="bpmInput" min="30" max="300" step="1" value="92" aria-label="Tempo in BPM" /> bpm</span>
         <button class="tapbtn" id="tapBtn" title="Tap the beat, or press the spacebar">Tap</button>
@@ -462,7 +554,7 @@
     </div>
     <div class="grp">
       <span class="lab">Cards</span>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:6px">
         <button class="tapbtn" id="prevBtn" title="Previous card (\u2190)">&#9664;</button>
         <button class="tapbtn" id="nextBtn" title="Next card (\u2192 or N)">Next &#9654;</button>
         <div class="seg" id="advanceSeg" title="Auto flips each cycle; Hold stays until you press Next">
@@ -474,16 +566,18 @@
     </div>
     <div class="grp" id="songBadgeGrp" hidden>
       <span class="lab">Song</span>
-      <div class="songbadge" id="songBadge" title="Loaded song"></div>
+      <div class="songbadge" id="songBadge" title="Loaded song"><span class="songbadgetext" id="songBadgeText"></span></div>
     </div>
+    <div class="grp" id="fsDiffSlot" style="display:none"></div>
     <div class="grp playbtn">
       <span class="lab">&nbsp;</span>
-      <div style="display:flex;gap:10px">
+      <div style="display:flex;gap:8px">
         <button class="go" id="go">&#9654; Play</button>
         <button class="present" id="presentBtn" title="Fullscreen presentation">&#9974; Full-Screen</button>
         <button class="present exitpresent" id="exitPresentBtn">&#10005; Exit</button>
       </div>
     </div>
+  </div>
   </div>
 
   <div class="status" id="statusbar">
@@ -508,7 +602,7 @@
   </div>
 
   <p class="note">
-    <b>Difficulty Level</b> loads a recommended pool of note values; <b>Rhythm Complexity</b> controls how dense and syncopated each card is &mdash; tap <b>Combine</b> to mix several into one grab&#8209;bag. <b>Play</b> begins with a Get&#8209;Ready count&#8209;off, then Count It while the pulse sweeps the subdivisions; add a Clap It pass under <b>Steps</b>. Tap the beat (or spacebar) to set the tempo, or type an exact BPM. <b>Your Own Music</b> (in Advanced Options) loads an audio file, finds its tempo and downbeat, and locks the drill to the track. <b>Rhythm Customization</b> sets the exact values, and <b>Advanced Options</b> hold card length, syllable reveal, &ldquo;Hear It,&rdquo; ties, and count&#8209;off length. <b>Save Current</b> and <b>Copy Link</b> keep a setup; <b>Full&#8209;Screen</b> projects the card. Everything runs in the browser &mdash; nothing to download, works offline.
+    <b>Difficulty Level</b> loads a recommended pool of note values; <b>Rhythm Complexity</b> controls how dense and syncopated each card is &mdash; tap <b>Combine</b> to mix several into one grab&#8209;bag. <b>Play</b> begins with a Get&#8209;Ready count&#8209;off, then Count It while the pulse sweeps the subdivisions; add a Clap It pass under <b>Steps</b>. Tap the beat (or spacebar) to set the tempo, or type an exact BPM. <b>Your Own Music</b> (next to Groove) loads an audio file, finds its tempo and downbeat, and locks the drill to the track. <b>Rhythm Customization</b> sets the exact values, and <b>Advanced Options</b> hold card length, syllable reveal, &ldquo;Hear It,&rdquo; ties, and count&#8209;off length. <b>Save Current</b> and <b>Copy Link</b> keep a setup; <b>Full&#8209;Screen</b> projects the card. Everything runs in the browser &mdash; nothing to download, works offline.
   </p>
 
   <!-- hidden engine DOM contract: the lifted generator reads these exact ids -->
