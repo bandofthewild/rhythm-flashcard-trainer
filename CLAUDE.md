@@ -119,13 +119,28 @@ asymmetrical meters at a teacher's actual projector resolution.
   declared first (`height:100vh; height:100dvh;` — an unsupported value is ignored per
   declaration, so older browsers keep the `vh` line and newer ones use `dvh`). Applies to
   `body.present .wrap` and `.modalbox`'s `max-height`.
-- **Full-screen's control row is tuned for a wide projector, not a phone in portrait.** On
-  a narrow+short viewport the wrapped control rows above the card can eat most of the
-  vertical space, leaving too little for the notation. `.cardwrap`/`.card` use
-  `overflow:auto` (not `hidden`) in present mode *specifically so that case is scrollable
-  instead of silently clipping* — on a projector everything already fits via the
-  scale-to-fit logic in `renderCard()`, so `auto` never shows a scrollbar there. Don't
-  change these back to `hidden` without re-solving the narrow-viewport case some other way.
+- **Full-screen's control row is tuned for a wide projector, not a phone.** iOS has no
+  working screen-orientation lock, so Full-Screen can't force landscape itself — instead,
+  a pure-CSS `@media (orientation:portrait)` swap (`#rotateHint`) replaces the whole UI
+  with a "turn your phone sideways" prompt while `body.present` and portrait, and reverts
+  live the moment the phone rotates, no JS involved. A second query,
+  `@media (orientation:landscape) and (max-height:500px)`, shrinks the control row
+  (buttons, fonts, gaps) specifically for a phone turned sideways — tall projectors and
+  laptops never hit that height ceiling, so they're untouched. `.cardwrap`/`.card` also
+  keep `overflow:auto` (not `hidden`) in present mode as a last-resort safety net — on a
+  projector everything already fits via the scale-to-fit logic in `renderCard()`, so
+  `auto` never shows a scrollbar there, but it means a still-too-tight phone case scrolls
+  instead of silently clipping notation off-screen.
+- **Audio needs a real user gesture to unlock, and this app is deployed two different
+  ways that affect how strict that requirement is.** The Rhythm Trainer's promo card opens
+  it in a **new tab** (not an iframe), so any tap/click/keydown anywhere unlocking
+  `AudioContext` (see the `ensureAudio()` listeners) has been enough in testing. The
+  **Note Board**, by contrast, needed a dedicated "tap to enable sound" button because it's
+  actually embedded **in an iframe** on the Wix page, and some browsers are stricter about
+  which gestures count as "real" inside embedded/cross-origin content specifically. If the
+  Trainer is ever embedded the same way (rather than opened standalone), re-check whether
+  the broad gesture-listener approach here is still sufficient, or whether it needs the
+  Note Board's explicit button too — don't assume standalone-tab behavior carries over.
 
 ## Design constraints
 

@@ -218,6 +218,55 @@
   body.present #songBadgeGrp{display:none !important}
   .exitpresent{display:none}
 
+  /* iOS Safari has no working screen-orientation lock, so Full-Screen can't force
+     landscape itself — instead, while present + portrait, swap the whole UI for a prompt
+     to rotate. Pure CSS/orientation-media-query, so it updates live as the phone turns,
+     no JS involved. */
+  .rotatehint{display:none}
+  @media (orientation:portrait){
+    body.present .wrap{display:none !important}
+    body.present .rotatehint{
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:10px; position:fixed; inset:0; height:100vh; height:100dvh; padding:40px;
+      background:var(--brass); color:#fff; text-align:center; z-index:200;
+    }
+  }
+  .rotateicon{font-size:52px; animation:rotatePhone 1.6s ease-in-out infinite}
+  @media (prefers-reduced-motion:reduce){ .rotateicon{animation:none} }
+  @keyframes rotatePhone{
+    0%,20%{transform:rotate(0deg)} 50%,70%{transform:rotate(-90deg)} 100%{transform:rotate(-90deg)}
+  }
+  .rotatehint div:nth-child(2){font-size:20px; font-weight:700; font-family:var(--head)}
+  .rotatehint p{margin:0; font-size:13px; color:#eaf3f6; max-width:280px; line-height:1.5}
+
+  /* Full-Screen's control row is sized for a wide, tall projector. A phone in landscape
+     is wide too, but much SHORTER — compact everything so the crucial controls and the
+     card both fit without needing to scroll. Height-keyed (not width-keyed): this is
+     exactly the aspect ratio a phone turned sideways produces, and doesn't fire on a
+     projector or laptop, which are comfortably taller than 500px even at their most
+     letterboxed. */
+  @media (orientation:landscape) and (max-height:500px){
+    body.present .playbarGroup{gap:8px; margin:0 0 4px}
+    body.present .grp .lab{min-height:11px; font-size:8px; letter-spacing:.04em}
+    body.present .seg button{min-height:28px; padding:3px 6px; font-size:10.5px; gap:0}
+    body.present .seg.twoline button small{display:none}
+    body.present .tapbtn, body.present .minibtn, body.present .custbtn,
+    body.present .go, body.present .present{min-height:28px; padding:5px 9px; font-size:10.5px}
+    body.present input[type=range]{width:64px}
+    body.present .tempoval input{width:38px; font-size:12px; padding:2px 4px}
+    body.present .status{padding:4px 10px; gap:8px}
+    body.present .now{min-width:0; gap:6px}
+    body.present .now .metername{font-size:10px}
+    body.present .now .metername b{font-size:12px}
+    body.present .phasebox{padding:4px 10px; gap:8px}
+    body.present .phaselabel{font-size:12px}
+    body.present .phasecount{font-size:18px}
+    body.present .dots{gap:4px}
+    body.present .dots .d{width:8px; height:8px}
+    body.present .cardwrap{padding:2px 8px}
+    body.present .card{padding:2px}
+  }
+
   .modal{position:fixed; inset:0; background:rgba(8,10,14,.72); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px}
   .modal[hidden]{display:none}
   .modalbox{position:relative; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px 30px; max-width:900px; max-height:88vh; max-height:88dvh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5)}
@@ -304,6 +353,11 @@
 </style>
 </head>
 <body>
+<div class="rotatehint" id="rotateHint">
+  <div class="rotateicon">&#128241;</div>
+  <div>Turn your phone sideways</div>
+  <p>Full&#8209;Screen needs landscape to show the controls and the card together.</p>
+</div>
 <div class="wrap">
   <header class="top">
     <h1>Rhythm Flashcard Trainer</h1>
