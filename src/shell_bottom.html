@@ -1401,8 +1401,17 @@
   document.getElementById('presentBtn').addEventListener('click', enterPresent);
   document.getElementById('exitPresentBtn').addEventListener('click', exitPresent);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') exitPresent(); });
-  document.addEventListener('fullscreenchange', function(){ if(!document.fullscreenElement && document.body.classList.contains('present')) exitPresent(); });
-  document.addEventListener('webkitfullscreenchange', function(){ if(!document.webkitFullscreenElement && document.body.classList.contains('present')) exitPresent(); });
+  // Chrome/Edge/Firefox reveal their own "Press Esc to exit full screen" hover bar when
+  // the mouse nears the very top of a REAL (OS-level) fullscreen window — with controls
+  // sitting right at the top edge, that transient bar can swallow clicks meant for them.
+  // Flag real fullscreen specifically (CSS-only "present" mode, e.g. most of iOS, doesn't
+  // have this browser behavior) so extra top clearance only applies where it's needed.
+  function syncRealFullscreenClass(){
+    document.body.classList.toggle('real-fullscreen', !!(document.fullscreenElement||document.webkitFullscreenElement));
+    if(document.body.classList.contains('present')) setTimeout(fitPresentHeight, 30);
+  }
+  document.addEventListener('fullscreenchange', function(){ syncRealFullscreenClass(); if(!document.fullscreenElement && document.body.classList.contains('present')) exitPresent(); });
+  document.addEventListener('webkitfullscreenchange', function(){ syncRealFullscreenClass(); if(!document.webkitFullscreenElement && document.body.classList.contains('present')) exitPresent(); });
 
   // ================= rhythm-value picker (#rhythmCheckboxes) =================
   var RPICK_GROUPS = [

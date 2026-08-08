@@ -210,6 +210,10 @@
   body.present .wrap{max-width:none; margin:0;
     padding:max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
     height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden}
+  /* real (OS-level) fullscreen specifically — see the fullscreenchange listener that sets
+     this class — needs extra headroom so the browser's own hover-reveal "exit full
+     screen" bar doesn't land on top of the Groove row and swallow clicks meant for it */
+  body.present.real-fullscreen .wrap{padding-top:max(56px, env(safe-area-inset-top))}
   /* the room a fixed 1280px layout can't spare, full-screen has plenty of — so the two
      playbar rows collapse into one: each .playbar disappears as a box (its .grp children
      join .playbarGroup's own flex row directly) while staying two rows normally */
