@@ -508,10 +508,20 @@
     var pb=document.querySelector('.playbar'), st=document.getElementById('statusbar');
     return (pb?pb.offsetHeight:0) + (st?st.offsetHeight:0) + 84;
   }
+  // A phone turned sideways in Full-Screen: the fixed-760px-then-CSS-zoom trick below is
+  // built for a wide projector and depends on measuring .card's real size at the right
+  // moment — fragile with Safari's own chrome still eating into the viewport. Route this
+  // case through the same fluid width%+viewBox path normal (non-present) mode already
+  // uses and has proven correct — no transform-scale measurement to get wrong.
+  function isCompactPresent(){
+    try { return window.matchMedia('(orientation:landscape) and (max-height:500px)').matches; }
+    catch(e){ return false; }
+  }
   function doRenderCard(measures, scale, rowH, forcedW){
     var staff=document.getElementById('cardStaff');
     staff.innerHTML='';
     var present=document.body.classList.contains('present');
+    var compact=present && isCompactPresent();
     var W = forcedW || staff.clientWidth || (present?1000:700);
     W = Math.max(360, Math.min(1400, W));
     try{
@@ -529,24 +539,36 @@
     strip.style.fontSize='20px'; strip.style.height='';
     var svg=staff.querySelector('svg');
     var scaleWrap=document.getElementById('cardScale');
-    if(present && svg){
+    if(present && !compact && svg){
       // fix the SVG at its natural pixel size so the strip aligns to it, then zoom the wrapper
       var natW=(cardGeom&&cardGeom.svgW)||W;
       svg.style.width=natW+'px';
       svg.style.height=((cardGeom&&cardGeom.lineH)||rowH)+'px';
       svg.style.display='block';
       scaleWrap.style.width=natW+'px';
-    } else if(svg){ svg.style.width='100%'; }
+    } else if(svg){ svg.style.width='100%'; svg.style.display='block'; }
     buildStrip(measures);     // aligns syllables to the (untransformed) natural geometry
   }
   function renderCard(measures){
     var present=document.body.classList.contains('present');
+    var compact=present && isCompactPresent();
     var scaleWrap=document.getElementById('cardScale');
     scaleWrap.style.transform='none';
-    if(!present){ scaleWrap.style.width='100%'; doRenderCard(measures, 1.18, 128); return; }
-    // Full-screen: render once at a fixed, safe size, then uniformly zoom the whole
-    // wrapper (notes + staff + syllables) to fill the space. VexFlow never sees an
-    // extreme scale, so the notation can't break — it's just a CSS zoom.
+    if(!present || compact){
+      scaleWrap.style.width='100%';
+      var rowH=128;
+      if(present){
+        // size the SVG to what's actually left after the compacted control rows, instead
+        // of a fixed 152px sitting small inside however much taller the box turns out to be
+        var cw=document.getElementById('cardwrap');
+        rowH=Math.max(90, Math.min(240, (cw.clientHeight||200)-18));
+      }
+      doRenderCard(measures, present?1.3:1.18, rowH);
+      return;
+    }
+    // Full-screen on a wide projector: render once at a fixed, safe size, then uniformly
+    // zoom the whole wrapper (notes + staff + syllables) to fill the space. VexFlow never
+    // sees an extreme scale, so the notation can't break — it's just a CSS zoom.
     doRenderCard(measures, 1.3, 152, 760);
     var natW=scaleWrap.offsetWidth||760, natH=scaleWrap.offsetHeight||220;
     var card=document.getElementById('card').getBoundingClientRect();

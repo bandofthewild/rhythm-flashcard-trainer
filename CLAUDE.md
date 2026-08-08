@@ -131,6 +131,27 @@ asymmetrical meters at a teacher's actual projector resolution.
   projector everything already fits via the scale-to-fit logic in `renderCard()`, so
   `auto` never shows a scrollbar there, but it means a still-too-tight phone case scrolls
   instead of silently clipping notation off-screen.
+- **Full-screen has two completely different rendering paths, and a phone must use the
+  fluid one, not the projector one.** The projector path (`renderCard()`'s default
+  present-mode branch) renders VexFlow once at a fixed 760px, then reads `.card`'s real
+  size and applies a CSS `transform:scale(k)` to zoom the whole thing up — this depends on
+  measuring the container at the right moment, which is fragile when Safari's own chrome
+  (address bar, landscape tab bar) is still eating into the viewport and things settle
+  later/differently than on desktop. `isCompactPresent()` (mirrors the
+  `orientation:landscape and max-height:500px` media query) detects a phone turned
+  sideways and routes it through the *same* fluid width:100%+viewBox path normal
+  (non-present) mode uses — no transform-scale measurement to get wrong. Its row height is
+  measured from `#cardwrap`'s actual (already-compacted) size, so the SVG fills the space
+  instead of rendering small-and-top-anchored inside a mostly-empty box. Don't merge these
+  two paths or make the phone one "smarter" — the fixed-render-then-zoom approach exists
+  specifically so VexFlow never sees an extreme lineWidth on a huge projector, and that
+  reasoning doesn't apply on a phone, where the natural size is already in the right range.
+- **iOS Safari often doesn't grant real `requestFullscreen()`**, so Full-Screen frequently
+  runs with Safari's own chrome still visible — in landscape that's a persistent tab bar
+  that `100vh`/`100dvh` don't account for (`dvh` tracks the portrait toolbar's collapse,
+  not this). `.wrap`'s height is pinned directly from `window.visualViewport.height` (see
+  `fitPresentHeight()`), updated live on its `resize`/`scroll` events, with the `vh`/`dvh`
+  CSS only as the fallback for browsers without `visualViewport`.
 - **Audio needs a real user gesture to unlock, and this app is deployed two different
   ways that affect how strict that requirement is.** The Rhythm Trainer's promo card opens
   it in a **new tab** (not an iframe), so any tap/click/keydown anywhere unlocking
