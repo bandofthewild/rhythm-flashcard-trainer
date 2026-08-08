@@ -1311,7 +1311,11 @@
   function refitPresent(){ renderCard(cardMeasures.length?cardMeasures:[]); }
   function requestFS(el){
     var fn=el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||el.msRequestFullscreen;
-    if(fn){ try{ fn.call(el); }catch(e){} }
+    if(!fn) return;
+    // requestFullscreen() returns a promise that can reject (denied permission, iOS's
+    // limited support, a not-fully-trusted gesture) — the class-based layout is the real
+    // fallback either way, so a rejection here is expected and safe to just swallow.
+    try{ var p=fn.call(el); if(p && p.catch) p.catch(function(){}); }catch(e){}
   }
   function exitFS(){
     if(document.fullscreenElement||document.webkitFullscreenElement){
@@ -1330,12 +1334,30 @@
     if(grp && home) home.parentNode.insertBefore(grp, home.nextSibling);
     if(slot) slot.style.display='none';
   }
+  // iOS Safari doesn't reliably grant real requestFullscreen() on arbitrary elements, so
+  // Full-Screen often runs with Safari's own chrome still on screen — in landscape that's
+  // a persistent tab bar that 100vh/100dvh don't necessarily account for (dvh tracks the
+  // portrait toolbar's collapse, not this). window.visualViewport.height is the one number
+  // that reflects what's ACTUALLY visible, so measure it directly and pin .wrap to that
+  // exact pixel height while present, overriding the vh/dvh CSS as a fallback only.
+  function fitPresentHeight(){
+    if(!document.body.classList.contains('present')) return;
+    var vv=window.visualViewport;
+    var h=vv ? vv.height : window.innerHeight;
+    document.querySelector('.wrap').style.height=h+'px';
+    refitPresent();
+  }
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', fitPresentHeight);
+    window.visualViewport.addEventListener('scroll', fitPresentHeight);
+  }
   function enterPresent(){
     document.body.classList.add('present');
     moveDiffControlsToPresent();
     requestFS(document.documentElement);   // real fullscreen where supported; class-based works regardless (e.g. iOS)
     ensureAudio();                          // the fullscreen transition itself can re-suspend audio on iOS
     setTimeout(ensureAudio, 300);           // and again once the transition has actually settled
+    fitPresentHeight(); setTimeout(fitPresentHeight, 300);
     requestAnimationFrame(function(){ requestAnimationFrame(refitPresent); });
     setTimeout(refitPresent, 250);
   }
@@ -1343,6 +1365,7 @@
     var was=document.body.classList.contains('present');
     moveDiffControlsHome();
     document.body.classList.remove('present');
+    document.querySelector('.wrap').style.height='';   // let the (non-present) CSS own it again
     if(was) setTimeout(function(){ renderCard(cardMeasures.length?cardMeasures:[]); }, 60);
     exitFS();
   }
