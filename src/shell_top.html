@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Rhythm Flashcard Trainer — rhythm reading for individuals &amp; ensembles</title>
+<!-- iOS only drops ALL Safari chrome (no address bar, no tab strip) for a page launched
+     from its Home Screen icon — the general Fullscreen API for non-video content is a
+     recent, unreliable addition (iOS 16.4+), which is why "Full-Screen" also has the
+     CSS-based fallback below. Share -> Add to Home Screen gets the truly chrome-free view. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Rhythm Trainer" />
+<meta name="theme-color" content="#035772" />
 <script src="https://cdn.jsdelivr.net/npm/vexflow@5.0.0/build/cjs/vexflow.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -194,7 +203,13 @@
      real page overflows whenever that chrome is actually showing. 100dvh tracks the true
      visible viewport as the chrome shows/hides; the 100vh line above is the fallback for
      browsers that don't understand dvh (an unsupported value is simply ignored per-line) */
-  body.present .wrap{max-width:none; margin:0; padding:16px 12px 8px; height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden}
+  /* black-translucent (see the apple-mobile-web-app-status-bar-style meta tag) lets page
+     content extend under the status bar/notch when launched from the Home Screen — pad
+     for the safe area so the Groove row never sits behind it. env() falls back to 0 on
+     browsers that don't support it, so this is a no-op everywhere else. */
+  body.present .wrap{max-width:none; margin:0;
+    padding:max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden}
   /* the room a fixed 1280px layout can't spare, full-screen has plenty of — so the two
      playbar rows collapse into one: each .playbar disappears as a box (its .grp children
      join .playbarGroup's own flex row directly) while staying two rows normally */
