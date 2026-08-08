@@ -167,11 +167,16 @@
   }
   // iOS Safari only unlocks a suspended AudioContext inside a direct user-gesture handler,
   // and can re-suspend it around a fullscreen transition or backgrounding the tab. Rather
-  // than depend on Play being literally the first tap on the page, try to unlock on the
-  // very first gesture anywhere, and re-resume around the moments known to suspend it.
-  ['pointerdown','touchend','click','keydown'].forEach(function(evt){
-    document.addEventListener(evt, ensureAudio, {capture:true, passive:true});
-  });
+  // than depend on Play being literally the first tap, make one attempt on the very first
+  // gesture anywhere — a single bubble-phase, self-removing listener per event type, so it
+  // fires at most once total and never competes with a button's own click handler.
+  function unlockAudioOnce(){
+    ensureAudio();
+    document.removeEventListener('touchstart', unlockAudioOnce);
+    document.removeEventListener('click', unlockAudioOnce);
+  }
+  document.addEventListener('touchstart', unlockAudioOnce, {passive:true});
+  document.addEventListener('click', unlockAudioOnce);
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState==='visible' && audioCtx && audioCtx.state==='suspended') audioCtx.resume();
   });
