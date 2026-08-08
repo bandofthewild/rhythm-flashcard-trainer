@@ -152,6 +152,21 @@ asymmetrical meters at a teacher's actual projector resolution.
   not this). `.wrap`'s height is pinned directly from `window.visualViewport.height` (see
   `fitPresentHeight()`), updated live on its `resize`/`scroll` events, with the `vh`/`dvh`
   CSS only as the fallback for browsers without `visualViewport`.
+- **`enterPresent()` deliberately does NOT call `requestFullscreen()` anymore — don't add
+  it back without solving the problem that got it removed.** It seemed like an obvious way
+  to also hide the *browser's* chrome (address bar, tabs) on top of our own CSS-based
+  layout, but it caused more problems than it solved: iOS mostly rejects it anyway (the
+  whole reason the CSS-based "present" mode exists), and on desktop, real fullscreen
+  introduced browser-level quirks outside the app's control — Chrome/Edge/Firefox reveal
+  their own "press Esc to exit" hover bar near the top of a real fullscreen window, and it
+  was reported (not fully root-caused — this sandbox's `requestFullscreen()` calls get
+  rejected outright, so it couldn't be reproduced directly here) that clicks could stop
+  reaching controls anywhere on the page. The CSS-only "present" mode is the reliable,
+  well-tested experience everywhere; a user who wants the browser's own chrome gone too
+  can press F11 (or their browser's fullscreen shortcut) themselves — the
+  `fullscreenchange` listener still notices if they do and adds the extra top clearance
+  (the `real-fullscreen` body class) for that hover bar, without our own code ever
+  triggering the fragile programmatic path.
 - **Audio needs a real user gesture to unlock, and this app is deployed two different
   ways that affect how strict that requirement is.** The Rhythm Trainer's promo card opens
   it in a **new tab** (not an iframe), so any tap/click/keydown anywhere unlocking

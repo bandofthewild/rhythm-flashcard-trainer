@@ -1331,6 +1331,14 @@
   // ================= presentation (fullscreen) =================
   var presTimer=null;
   function refitPresent(){ renderCard(cardMeasures.length?cardMeasures:[]); }
+  // NOT called from enterPresent() (see there) — kept only in case a future, better-
+  // understood use for it turns up. Programmatically requesting real fullscreen turned
+  // out to be more trouble than it's worth: iOS mostly rejects it anyway (hence the whole
+  // CSS-based "present" mode to begin with), and on desktop it introduced its own bugs —
+  // browsers reveal their own "press Esc to exit" hover bar near the top of a real
+  // fullscreen window, and reportedly clicking anywhere at all could become unreliable,
+  // neither of which happens in the CSS-only mode. Left unused rather than deleted so the
+  // history/reasoning stays attached to working code instead of a diff no one will reread.
   function requestFS(el){
     var fn=el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||el.msRequestFullscreen;
     if(!fn) return;
@@ -1376,7 +1384,11 @@
   function enterPresent(){
     document.body.classList.add('present');
     moveDiffControlsToPresent();
-    requestFS(document.documentElement);   // real fullscreen where supported; class-based works regardless (e.g. iOS)
+    // Deliberately NOT calling requestFS() here — see the comment on requestFS() above.
+    // The CSS-based "present" layout is the reliable, well-tested experience on every
+    // platform; a user who wants the browser's own chrome hidden too can press F11 (or
+    // their browser's fullscreen shortcut) themselves — the fullscreenchange listener
+    // below still notices and adds the real-fullscreen top clearance if they do.
     ensureAudio();                          // the fullscreen transition itself can re-suspend audio on iOS
     setTimeout(ensureAudio, 300);           // and again once the transition has actually settled
     fitPresentHeight(); setTimeout(fitPresentHeight, 300);
