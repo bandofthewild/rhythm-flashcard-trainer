@@ -1367,11 +1367,12 @@
   function enterPresent(){
     document.body.classList.add('present');
     moveDiffControlsToPresent();
-    // Deliberately NOT calling requestFS() here — see the comment on requestFS() above.
-    // The CSS-based "present" layout is the reliable, well-tested experience on every
-    // platform; a user who wants the browser's own chrome hidden too can press F11 (or
-    // their browser's fullscreen shortcut) themselves — the fullscreenchange listener
-    // below still notices and adds the real-fullscreen top clearance if they do.
+    // Also try to hide the browser's own chrome (tabs, address bar) and the OS taskbar
+    // via the real Fullscreen API — safe to call now that the desktop click-in-present
+    // bug (a class collision, see CLAUDE.md) is fixed; it was never actually caused by
+    // this call. iOS Safari mostly rejects it (requestFS() swallows that silently) and
+    // the CSS-based "present" layout above is the real, always-on fallback either way.
+    requestFS(document.documentElement);
     requestAnimationFrame(function(){ requestAnimationFrame(refitPresent); });
     setTimeout(refitPresent, 250);
   }

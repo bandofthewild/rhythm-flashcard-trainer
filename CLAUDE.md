@@ -168,18 +168,21 @@ asymmetrical meters at a teacher's actual projector resolution.
   two paths or make the phone one "smarter" — the fixed-render-then-zoom approach exists
   specifically so VexFlow never sees an extreme lineWidth on a huge projector, and that
   reasoning doesn't apply on a phone, where the natural size is already in the right range.
-- **`enterPresent()` deliberately does NOT call `requestFullscreen()` — don't add it back
-  without solving the problem that got it removed.** It seemed like an obvious way to also
-  hide the *browser's* chrome (address bar, tabs) on top of our own CSS-based layout, but
-  it caused more problems than it solved: iOS mostly rejects it anyway (the whole reason
-  the CSS-based "present" mode exists), and on desktop, real fullscreen introduced
-  browser-level quirks outside the app's control — Chrome/Edge/Firefox reveal their own
-  "press Esc to exit" hover bar near the top of a real fullscreen window. The CSS-only
-  "present" mode is the reliable, well-tested experience everywhere; a user who wants the
-  browser's own chrome gone too can press F11 (or their browser's fullscreen shortcut)
-  themselves — the `fullscreenchange` listener still notices if they do and adds extra top
-  clearance (the `real-fullscreen` body class) for that hover bar, without our own code
-  ever triggering the fragile programmatic path.
+- **`enterPresent()` calls `requestFS(document.documentElement)` to also hide the
+  browser's own chrome (tabs, address bar) and the OS taskbar, on top of the CSS-based
+  `body.present` layout.** This was pulled out for a while after a desktop bug report
+  ("clicking anything in full-screen does nothing, the screen squishes in") that looked
+  fullscreen-related — it wasn't; the real cause was the `.present` class collision
+  documented above ("Never give a button the bare class `present`"). Once that was fixed,
+  there was no remaining reason to avoid real fullscreen, so it was restored. iOS Safari
+  still mostly rejects `requestFullscreen()` on non-video elements — `requestFS()` swallows
+  that rejection silently, and the CSS-only `body.present` layout is the real, always-on
+  fallback everywhere, so a user on a platform that refuses the API sees the same reliable
+  experience as before. Chrome/Edge/Firefox briefly show their own "press Esc to exit"
+  hover bar near the top of a real fullscreen window when it activates; the
+  `fullscreenchange` listener adds the `real-fullscreen` body class (extra top clearance)
+  for that. If a fullscreen-adjacent bug ever comes back, check the `.present` class
+  collision invariant above before suspecting this call again.
 - **Full-screen's height comes from plain CSS (`100vh`/`100dvh`) only — there is
   deliberately no JS re-measuring it.** A `window.visualViewport`-driven
   `fitPresentHeight()` lived here briefly (pinning `.wrap`'s height directly, re-rendering
