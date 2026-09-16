@@ -71,8 +71,15 @@ asymmetrical meters at a teacher's actual projector resolution.
 - **Clock.** One scheduler on 16th-note units. `sixteenthDur() = (60/bpm)/pulseUnits`,
   where `pulseUnits` comes from `getMeterPlaybackConfig(ts)` — 4 simple, 6 compound,
   8 cut, 2 asymmetrical. Everything (groove, sweep, Hear It, song lock) rides this.
-- **Cycle.** prep (whole bars) → Count It → optional Clap It. Because every phase is a
-  whole number of bars, the groove never stutters and cards start on a downbeat.
+- **Cycle.** prep (whole bars) → Count It → optional Clap/Play It, with an optional second
+  prep re-inserted between them (`state.doubleReady`, Advanced Options → "Extra Get Ready
+  before Clap/Play") for classes that need a beat to switch from counting out loud to
+  clapping/playing. `computeCycleLens()` derives `prepLen`/`countLen`/`prep2Len`/`clapLen`
+  from state and sums them into `cycleLen16`; `onStep()` just walks that range in order via
+  cumulative bounds, and `renderPrepStep(p)` (shared by both prep spans) renders one prep
+  step at position `p` *within its own span* — always pass a 0-based offset into that span,
+  never the raw cycle position. Because every phase is a whole number of bars, the groove
+  never stutters and cards start on a downbeat.
 - **Meters.** Simple (4/4, 3/4, 2/4), compound (6/8, 9/8, 12/8), cut (2/2, half = beat,
   counted one tier removed), asymmetrical (5/8, 7/8, counted per eighth with a grouping
   picker that drives groove accents and beam grouping).

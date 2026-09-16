@@ -417,7 +417,7 @@
           <ul>
             <li><b>Cards: Auto</b> flips each turn; <b>Hold</b> stays put &mdash; use <b>Next &#9654;</b> / <b>&#9664;</b> (or &larr; &rarr;) to advance on your cue.</li>
             <li>Tap the card or press <b>R</b> to <b>Reveal</b> the counting; press <b>F</b> for <b>Full&#8209;Screen</b>.</li>
-            <li><b>Steps</b> adds a <b>Clap It</b> pass; <b>Advanced Options</b> hold card length, syllable reveal, "Hear It," and count&#8209;off length.</li>
+            <li><b>Steps</b> adds a <b>Clap/Play It</b> pass; <b>Advanced Options</b> hold card length, syllable reveal, "Hear It," and count&#8209;off length.</li>
           </ul>
         </div>
         <div>
@@ -546,7 +546,7 @@
         <button data-sy="last">Reveal last bar</button>
         <button data-sy="on">Always show</button>
       </div>
-      <p class="advdesc">Show the "1 e &amp; a" syllables under the notes. <b>Reveal last bar</b> keeps them hidden while students read, then reveals the counting to check &mdash; near the end of the card, or across the whole card during the <b>Clap It</b> pass.</p>
+      <p class="advdesc">Show the "1 e &amp; a" syllables under the notes. <b>Reveal last bar</b> keeps them hidden while students read, then reveals the counting to check &mdash; near the end of the card, or across the whole card during the <b>Clap/Play It</b> pass.</p>
     </div>
     <div class="sec">
       <div class="sechead"><h4>Sound &amp; Challenge</h4></div>
@@ -564,6 +564,8 @@
         <button data-p="8">8 beats</button>
       </div>
       <p class="advdesc">How many felt beats of count&#8209;off before each card. Rounded up to whole bars so the groove stays aligned.</p>
+      <label><input type="checkbox" id="doubleReadyToggle" /> Extra Get Ready before Clap/Play</label>
+      <p class="advdesc">Inserts a second Get&#8209;Ready count&#8209;off between Count It and Clap/Play It, giving students a moment to switch from counting out loud to clapping or playing. Only applies when Steps is <b>Count + Clap/Play</b>.</p>
     </div>
   </div>
 
@@ -636,7 +638,7 @@
       <span class="lab">Steps</span>
       <div class="seg" id="stepsSeg">
         <button data-x="count" class="sel">Count</button>
-        <button data-x="countclap">Count + Clap</button>
+        <button data-x="countclap">Count + Clap/Play</button>
       </div>
     </div>
     <div class="grp">
@@ -689,7 +691,7 @@
   </div>
 
   <p class="note">
-    <b>Difficulty Level</b> loads a recommended pool of note values; <b>Rhythm Complexity</b> controls how dense and syncopated each card is &mdash; tap <b>Combine</b> to mix several into one grab&#8209;bag. <b>Play</b> begins with a Get&#8209;Ready count&#8209;off, then Count It while the pulse sweeps the subdivisions; add a Clap It pass under <b>Steps</b>. Tap the beat (or spacebar) to set the tempo, or type an exact BPM. <b>Your Own Music</b> (next to Groove) loads an audio file, finds its tempo and downbeat, and locks the drill to the track. <b>Rhythm Customization</b> sets the exact values, and <b>Advanced Options</b> hold card length, syllable reveal, &ldquo;Hear It,&rdquo; ties, and count&#8209;off length. <b>Save Current</b> and <b>Copy Link</b> keep a setup; <b>Full&#8209;Screen</b> projects the card. Everything runs in the browser &mdash; nothing to download, works offline.
+    <b>Difficulty Level</b> loads a recommended pool of note values; <b>Rhythm Complexity</b> controls how dense and syncopated each card is &mdash; tap <b>Combine</b> to mix several into one grab&#8209;bag. <b>Play</b> begins with a Get&#8209;Ready count&#8209;off, then Count It while the pulse sweeps the subdivisions; add a Clap/Play It pass under <b>Steps</b>. Tap the beat (or spacebar) to set the tempo, or type an exact BPM. <b>Your Own Music</b> (next to Groove) loads an audio file, finds its tempo and downbeat, and locks the drill to the track. <b>Rhythm Customization</b> sets the exact values, and <b>Advanced Options</b> hold card length, syllable reveal, &ldquo;Hear It,&rdquo; ties, and count&#8209;off length. <b>Save Current</b> and <b>Copy Link</b> keep a setup; <b>Full&#8209;Screen</b> projects the card. Everything runs in the browser &mdash; nothing to download, works offline.
   </p>
 
   <!-- hidden engine DOM contract: the lifted generator reads these exact ids -->

@@ -8,7 +8,7 @@
     measures:1,
     sound:'rock', bpm:92, steps:'count',            // 'count' | 'countclap'
     syllables:'off',                                 // 'off' | 'last' | 'on'
-    hearIt:false, speedTrainer:false, ties:false,
+    hearIt:false, speedTrainer:false, ties:false, doubleReady:false,
     autoAdvance:true,
     focus:{ sync:false, dotted:false, rests:false, triplet:false },
     prepBeatsTarget:4,
@@ -422,7 +422,7 @@
   var PREP_BEATS = 4;    // at least four felt beats of "Get Ready", every meter
   var prepBeats = 4;     // actual prep beats after rounding to whole bars
   var cardMeasures=[], cardGeom=null, stripCells=[], cardUnits=0;
-  var prepLen=0, countLen=0, clapLen=0, cycleLen16=0;
+  var prepLen=0, countLen=0, clapLen=0, prep2Len=0, cycleLen16=0;
   var cardsDealt=0;
 
   function isCompoundTS(ts){ return ts==='6/8'||ts==='9/8'||ts==='12/8'; }
@@ -723,7 +723,10 @@
     prepLen  = prepBars * upb;
     countLen = state.measures * upb;
     clapLen  = (state.steps==='countclap') ? countLen : 0;
-    cycleLen16 = prepLen + countLen + clapLen;           // always a whole number of bars
+    // A second Get-Ready pass between Count It and Clap/Play It — only meaningful when
+    // there's a Clap/Play It pass to lead into.
+    prep2Len = (state.steps==='countclap' && state.doubleReady) ? prepLen : 0;
+    cycleLen16 = prepLen + countLen + prep2Len + clapLen;  // always a whole number of bars
     cardUnits = countLen;
   }
 
@@ -772,6 +775,25 @@
     }
   }
 
+  // Renders one 16th-step of a Get-Ready count-off, given the position WITHIN that prep
+  // span (0-based). Shared by the initial prep and the optional second one before
+  // Clap/Play It, so both count down identically.
+  function renderPrepStep(p){
+    var pu=getMeterPlaybackConfig(state.timeSig).pulseUnits;
+    var b;
+    if(isOdd(state.timeSig)){
+      var starts=oddGroupStartSixteenths(state.timeSig), upbO=getTotalUnits(state.timeSig);
+      var inBar=p%upbO, gIdx=0;
+      for(var gi2=0;gi2<starts.length;gi2++){ if(inBar>=starts[gi2]) gIdx=gi2; }
+      b=Math.floor(p/upbO)*starts.length + gIdx;    // felt-group index
+    } else {
+      b=Math.floor(p/pu);                           // 0..prepBeats-1
+    }
+    setPhase('prep','Get Ready', String(Math.max(1, prepBeats - b)));
+    setDots(0);
+    clearSweep();
+  }
+
   // ================= per-16th step handler (cycle position derived from STEP) =================
   function onStep(t, step){
     if(!state.running) return;
@@ -790,29 +812,21 @@
     }
     if(pos % pu === 0) flashMet();
 
+    var countEnd=prepLen+countLen, prep2End=countEnd+prep2Len;
     if(pos < prepLen){
-      var b;
-      if(isOdd(state.timeSig)){
-        var starts=oddGroupStartSixteenths(state.timeSig), upbO=getTotalUnits(state.timeSig);
-        var inBar=pos%upbO, gIdx=0;
-        for(var gi2=0;gi2<starts.length;gi2++){ if(inBar>=starts[gi2]) gIdx=gi2; }
-        b=Math.floor(pos/upbO)*starts.length + gIdx;    // felt-group index
-      } else {
-        b=Math.floor(pos/pu);                           // 0..prepBeats-1
-      }
-      setPhase('prep','Get Ready', String(Math.max(1, prepBeats - b)));
-      setDots(0);
-      clearSweep();
-    } else if(pos < prepLen+countLen){
+      renderPrepStep(pos);
+    } else if(pos < countEnd){
       var tick=pos-prepLen;
       if(tick===0) scheduleHearIt(t);
       setPhase('count','Count It', String(Math.floor((tick % upb)/pu)+1));
       setDots(Math.floor((tick % upb)/pu)+1);
       sweep(tick, 'count');
+    } else if(pos < prep2End){
+      renderPrepStep(pos-countEnd);
     } else {
-      var tick2=pos-prepLen-countLen;
+      var tick2=pos-prep2End;
       if(tick2===0) scheduleHearIt(t);
-      setPhase('clap','Clap It', String(Math.floor((tick2 % upb)/pu)+1));
+      setPhase('clap','Clap/Play It', String(Math.floor((tick2 % upb)/pu)+1));
       setDots(Math.floor((tick2 % upb)/pu)+1);
       sweep(tick2, 'clap');
     }
@@ -1595,6 +1609,7 @@
   document.getElementById('hearItToggle').addEventListener('change', function(){ state.hearIt=this.checked; if(this.checked) ensureAudio(); });
   document.getElementById('speedToggle').addEventListener('change', function(){ state.speedTrainer=this.checked; });
   document.getElementById('tiesToggle').addEventListener('change', function(){ state.ties=this.checked; syncEngineDom(); if(!state.running) dealPreviewCard(); });
+  document.getElementById('doubleReadyToggle').addEventListener('change', function(){ state.doubleReady=this.checked; if(state.running) computeCycleLens(); });
 
   // Cards: Prev / Next / Reveal
   document.getElementById('nextBtn').addEventListener('click', function(){ nextCard(); });
@@ -1629,7 +1644,7 @@
   var STORE_KEY='rhythmBoardSetups';
   function loadStore(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)||'{}'); }catch(e){ return {}; } }
   function saveStore(o){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(o)); }catch(e){} }
-  var SETUP_KEYS=['timeSig','levels','difficulties','combineLevels','combineDiffs','customRhythms','measures','sound','bpm','steps','syllables','hearIt','speedTrainer','ties','autoAdvance','prepBeatsTarget','oddGrouping','focus'];
+  var SETUP_KEYS=['timeSig','levels','difficulties','combineLevels','combineDiffs','customRhythms','measures','sound','bpm','steps','syllables','hearIt','speedTrainer','ties','doubleReady','autoAdvance','prepBeatsTarget','oddGrouping','focus'];
   function enabledKeys(){
     return Object.keys(RHYTHM_DEFS).filter(function(k){ var el=document.getElementById('rhythm-'+k); return el && el.checked; });
   }
@@ -1657,6 +1672,7 @@
     document.getElementById('hearItToggle').checked=state.hearIt;
     document.getElementById('speedToggle').checked=state.speedTrainer;
     document.getElementById('tiesToggle').checked=state.ties;
+    document.getElementById('doubleReadyToggle').checked=state.doubleReady;
     var lc=document.getElementById('levelCombine');
     if(lc){ lc.classList.toggle('on', !!state.combineLevels); lc.setAttribute('aria-pressed', state.combineLevels?'true':'false'); }
     var dc=document.getElementById('diffCombine');
