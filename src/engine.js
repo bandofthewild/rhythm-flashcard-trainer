@@ -4957,7 +4957,12 @@ function renderOneLineWithVexFlow(renderDiv, countingSvg, timeSig, lineRhythms, 
     // inside the printable area (browser print was cropping the far right).
     const targetLineWidth = fullLineW;
     const END_NOTE_PAD = 34; // ~0.35" breathing room before barline / print margin
-    const LEFT_PAD_CLEF = 50;
+    // Gap between the time signature and the first note/rest. Wider than it once was so
+    // a leading rest reads clearly instead of looking tucked against the time signature.
+    // CLEF_GAP_EXTRA is added to BOTH the left pad and the first measure's width allowance
+    // (extraForClefTs below), so the space available to the notes themselves is unchanged.
+    const CLEF_GAP_EXTRA = 20;
+    const LEFT_PAD_CLEF = 50 + CLEF_GAP_EXTRA;
     const LEFT_PAD_NORMAL = 14;
     
     const dynamicWidths = calculateDynamicMeasureWidths(lineRhythms, targetLineWidth, 128);
@@ -4971,10 +4976,16 @@ function renderOneLineWithVexFlow(renderDiv, countingSvg, timeSig, lineRhythms, 
     // Clef first-measure extra (sum-preserving: take from last when possible).
     if (showClefAndTime && dynamicWidths.length > 0) {
         const extraForClefTs = 40;
-        dynamicWidths[0] += extraForClefTs;
+        dynamicWidths[0] += extraForClefTs + CLEF_GAP_EXTRA;
         if (dynamicWidths.length > 1) {
             const lastIdx = dynamicWidths.length - 1;
             dynamicWidths[lastIdx] = Math.max(100, dynamicWidths[lastIdx] - extraForClefTs);
+            // The wider clef gap is paid for by every later measure in proportion to its
+            // width, not the last one alone — a dense final measure can't afford the squeeze.
+            const restW = dynamicWidths.slice(1).reduce((a, b) => a + b, 0);
+            for (let j = 1; j < dynamicWidths.length; j++) {
+                dynamicWidths[j] = Math.max(100, dynamicWidths[j] - CLEF_GAP_EXTRA * (dynamicWidths[j] / restW));
+            }
         }
         const sum2 = dynamicWidths.reduce((a, b) => a + b, 0);
         dynamicWidths[dynamicWidths.length - 1] += (targetLineWidth - sum2);
